@@ -1,0 +1,19 @@
+{
+  "expo": {
+    "name": "JamSh Mobile",
+    "slug": "jamsh-mobile",
+    "scheme": "jamsh",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "platforms": ["android", "ios", "web"],
+    "android": {
+      "package": "com.jamsh.mobile"
+    },
+    "ios": {
+      "bundleIdentifier": "com.jamsh.mobile"
+    },
+    "web": {
+      "bundler": "metro"
+    }
+  }
+}

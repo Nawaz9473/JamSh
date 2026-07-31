@@ -1,0 +1,696 @@
+<?xml version="1.0"?>
+<?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:html="http://www.w3.org/TR/REC-html40">
+  <DocumentProperties xmlns="urn:schemas-microsoft-com:office:office">
+    <Author>Antigravity AI Assistant</Author>
+    <LastAuthor>Antigravity AI Assistant</LastAuthor>
+    <Created>2026-07-25T17:01:01.194Z</Created>
+    <Version>16.00</Version>
+  </DocumentProperties>
+  <Styles>
+    
+    <Style ss:ID="Default" ss:Name="Normal">
+      <Alignment ss:Vertical="Center"/>
+      <Borders/>
+      <Font ss:FontName="Segoe UI" x:Family="Swiss" ss:Size="11" ss:Color="#1F2937"/>
+      <Interior/>
+      <NumberFormat/>
+      <Protection/>
+    </Style>
+    <Style ss:ID="Title">
+      <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+      <Font ss:FontName="Segoe UI" ss:Size="16" ss:Bold="1" ss:Color="#FFFFFF"/>
+      <Interior ss:Color="#1E293B" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="TabHeader">
+      <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+      <Font ss:FontName="Segoe UI" ss:Size="12" ss:Bold="1" ss:Color="#FFFFFF"/>
+      <Interior ss:Color="#F59A18" ss:Pattern="Solid"/>
+    </Style>
+    <Style ss:ID="ColHeader">
+      <Alignment ss:Vertical="Center" ss:Horizontal="Left" ss:WrapText="1"/>
+      <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#FFFFFF"/>
+      <Interior ss:Color="#27272A" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#52525B"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#52525B"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="SectionHeader">
+      <Alignment ss:Vertical="Center" ss:Horizontal="Left"/>
+      <Font ss:FontName="Segoe UI" ss:Size="12" ss:Bold="1" ss:Color="#F59A18"/>
+      <Interior ss:Color="#FAF5FF" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="2" ss:Color="#F59A18"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="CellNormal">
+      <Alignment ss:Vertical="Top" ss:Horizontal="Left" ss:WrapText="1"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="CellBold">
+      <Alignment ss:Vertical="Top" ss:Horizontal="Left" ss:WrapText="1"/>
+      <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#1F2937"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="StatusLive">
+      <Alignment ss:Vertical="Top" ss:Horizontal="Center"/>
+      <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#047857"/>
+      <Interior ss:Color="#D1FAE5" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="StatusPartial">
+      <Alignment ss:Vertical="Top" ss:Horizontal="Center"/>
+      <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#B45309"/>
+      <Interior ss:Color="#FEF3C7" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+      </Borders>
+    </Style>
+    <Style ss:ID="StatusSim">
+      <Alignment ss:Vertical="Top" ss:Horizontal="Center"/>
+      <Font ss:FontName="Segoe UI" ss:Size="11" ss:Bold="1" ss:Color="#1D4ED8"/>
+      <Interior ss:Color="#DBEAFE" ss:Pattern="Solid"/>
+      <Borders>
+        <Border ss:Position="Bottom" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+        <Border ss:Position="Right" ss:LineStyle="Continuous" ss:Weight="1" ss:Color="#E4E4E7"/>
+      </Borders>
+    </Style>
+  
+  </Styles>
+  <Worksheet ss:Name="Overview &amp; Metadata">
+    <Table>
+      <Column ss:Width="150"/>
+      <Column ss:Width="500"/>
+      <Row ss:Height="40" ss:StyleID="Title">
+        <Cell ss:MergeAcross="1"><Data ss:Type="String">JAMSH SYSTEM INVENTORY OVERVIEW</Data></Cell>
+      </Row>
+      <Row ss:Height="15" ss:StyleID="Default">
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="TabHeader">
+        <Cell><Data ss:Type="String">System Attribute</Data></Cell>
+        <Cell><Data ss:Type="String">Project Layout Details</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Project Name</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamSh Monorepo (Hybrid E2EE Messaging &amp; Social Media Platform)</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OS Target Platforms</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web client (Vite React Native Web) and Mobile client placeholders (Expo/Capacitor for Android &amp; iOS)</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Offline Transport Layer</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Native P2P via a custom Capacitor plugin &apos;JamshNearby&apos; running Local TCP Socket servers/clients &amp; UDP beacons</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Online Sync Provider</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Supabase Client &amp; Auth + PostgreSQL DB (Prisma Schema Integration)</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Real-time Server Gateway</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">NestJS Gateway using Socket.io WebSocket server, backed by Redis clusters for presence monitoring</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Cryptographic Standard</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">X25519 Elliptic Curve Diffie-Hellman Key Exchange (E2EE Pairwise) + AES-GCM (Authenticated Encrypted Envelopes)</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Authentication Support</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Email/Password signups, Google OAuth, Phone SMS OTP, and reset recovery hooks</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Monorepo Workspace Layout</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">• apps/web: Core frontend React Native Web client
+• apps/mobile: Expo hybrid mobile placeholder
+• apps/api-server: NestJS API server
+• apps/testing-e2e: Playwright testing harness
+• packages/api: Client API SDK
+• packages/encryption: Shared cryptographic methods
+• packages/shared: Data validations &amp; filters
+• packages/types: Common Typescript definitions
+• packages/ui: Design theme constants</Data></Cell>
+      </Row>
+      <Row>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Compilation &amp; Setup Commands</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">• Install: npm install
+• Build: npm run build
+• Dev Web Client: npm run dev --workspace @jamsh/web
+• Capacitor Sync: npm run cap:sync
+• Run Playwright Tests: npx playwright test</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+  <Worksheet ss:Name="P2P &amp; Cryptography">
+    <Table>
+      <Column ss:Width="60"/>
+      <Column ss:Width="100"/>
+      <Column ss:Width="160"/>
+      <Column ss:Width="140"/>
+      <Column ss:Width="440"/>
+      <Column ss:Width="220"/>
+      <Row ss:Height="35" ss:StyleID="Title">
+        <Cell ss:MergeAcross="5"><Data ss:Type="String">P2P &amp; CRYPTOGRAPHY FEATURES LEDGER</Data></Cell>
+      </Row>
+      <Row ss:Height="10" ss:StyleID="Default">
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">ID</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Module</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Feature Name</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Status</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Working Mechanism &amp; Security Controls</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Primary Code Reference</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">1. Capacitor Native Offline Transport Layer</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Local TCP Server</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Listens for direct socket communication over local Wi-Fi/Hotspot networks on port 8383 inside Android (Java) and iOS (Swift) Plugins. Emits &apos;messageReceived&apos; events carrying encrypted envelopes to the frontend.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L317-365
+JamshNearbyPlugin.swift:L217-243</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Local TCP Client</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Initiates socket connections to recipient peer&apos;s IP address on port 8383 to transmit encrypted envelope packets and read validated cryptographic ACK signals.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L451-489
+JamshNearbyPlugin.swift:L354-411</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UDP Beacon Advertising</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Broadcasts a list of up to 5 rotating contact pseudonymous tokens derived via HMAC-SHA256 on port 8384 every 3 seconds to advertise local device presence.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L190-226
+JamshNearbyPlugin.swift:L109-158</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UDP Beacon Scanning</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Listens to UDP port 8384, decodes presence strings, identifies peer IP addresses, and alerts WebView via &apos;peerDiscovered&apos; events. Requests Android MulticastLock to bypass system-level packet drops.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L243-310
+JamshNearbyPlugin.swift:L160-201</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Length-Prefixed Framing</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Encodes network packets in a &apos;[4-byte big-endian length-prefix][JSON payload]&apos; frame. Sockets evaluate size (max 1MB) before allocating memory buffers to block resource exhaustion bugs.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L490-532
+JamshNearbyPlugin.swift:L413-457</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-06</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Connection Rate Limits</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Limits active pending server sockets to a global maximum of 10 concurrent connections, and throttling per-source IP to 2 concurrent sockets to protect against Local Denial of Service.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L370-386
+JamshNearbyPlugin.swift:L255-284</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-07</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Background Auto-Eviction TTL</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Registers an auto-eviction timer on socket creation. Closes connections automatically after 15 seconds if no ACK/NACK has been written, preventing server thread lockups.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L397-405
+JamshNearbyPlugin.swift:L305-311</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">P2P-08</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Nearby Transport</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Atomic Response Close</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Removes connection socket atomically from the active map and closes it under all execution paths once respondToEnvelope is called to prevent multi-response replay conditions.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L430-447
+JamshNearbyPlugin.swift:L328-351</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">2. Cryptographic Security &amp; E2E Encrypted Controls</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Pairwise E2EE Logic</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Derives pairwise shared secret keys between sender and recipient device keys using Diffie-Hellman (X25519). Encrypts the JSON envelope plaintext using authenticated AES-GCM encryption with unique nonces.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/encryption/src/index.ts
+packages/api/src/index.ts:L1578-1591</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Secure Hardware Keystore</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Encrypts user key pairs using Android KeyStore provider with AES/GCM/NoPadding, storing encrypted blobs in SharedPreferences. iOS handles keys directly inside Apple Keychain.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L81-184
+JamshNearbyPlugin.swift:L35-103</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Key Migration Ledger</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Detects legacy E2EE keypairs in LocalStorage on native app startup. Migrates them atomically to the hardware-backed keystore/keychain, verifies consistency, and purges the unsecure copies.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1901-1920</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">HMAC Rotating Beacons</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Protects UDP broadcast privacy by calculating 16-character beacon tokens via HMAC-SHA256(SharedSecret, Epoch), refreshing every 15 minutes. Scanners compute the same to recognize peer identities.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1057-1088
+packages/api/src/index.ts:L1127-1142</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Beacon Correlation Throttling</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Batches rotating contact beacons in groups of 5 per UDP packet. Rotates batches every 30 seconds to bypass standard 512-byte MTU caps and prevent observers from linking multiple tokens to a single device.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1071-1091</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-06</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Sender Cryptographic Binding</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Rejects incoming offline messages if the sender&apos;s public key is not cached from a previous online synchronization (prevents first-time chat spoofing offline). Decryption success confirms authenticity.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1251-1288</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRY-07</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Cryptography</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Purpose-Separated ACKs</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Recipients derive an ACK-specific key via HMAC-SHA256(SharedSecret, &apos;jamsh-ack-key&apos;). Signs a canonical context string: &apos;v1|length(msgId):msgId|SUCCESS|length(userId):userId&apos; to prevent cross-protocol replays.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1318-1340
+packages/api/src/index.ts:L1645-1669</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+  <Worksheet ss:Name="Sync &amp; Chat Gateway">
+    <Table>
+      <Column ss:Width="60"/>
+      <Column ss:Width="100"/>
+      <Column ss:Width="160"/>
+      <Column ss:Width="140"/>
+      <Column ss:Width="440"/>
+      <Column ss:Width="220"/>
+      <Row ss:Height="35" ss:StyleID="Title">
+        <Cell ss:MergeAcross="5"><Data ss:Type="String">SYNC &amp; CHAT GATEWAY FEATURES LEDGER</Data></Cell>
+      </Row>
+      <Row ss:Height="10" ss:StyleID="Default">
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">ID</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Module</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Feature Name</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Status</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Working Mechanism &amp; Sync Controls</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Primary Code Reference</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">1. SQLite Local Offline Message Queue</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OFL-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queue Service</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Local SQLite Queue</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Native Integration</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Manages unsent message envelopes locally in native SQLite database (jamsh_offline_queue.db) using tables mapping message_id, room_id, recipient_id, and serialized envelope JSON payloads.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L659-720
+JamshNearbyPlugin.swift:L462-566</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OFL-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queue Service</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Web Fallback Storage</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Provides transparent fallback to LocalStorage queue arrays if the application is running in a standard web browser instead of a native Android or iOS application.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L981-1030</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OFL-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queue Service</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Network Monitor Hooks</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Registers OS-level callbacks (Android ConnectivityManager NetworkCallback and iOS NWPathMonitor). Triggers automatic queue resync once internet status shifts back to &apos;online&apos;.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">JamshNearbyPlugin.java:L608-638
+JamshNearbyPlugin.swift:L580-589</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OFL-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queue Service</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Idempotent Queue Sync</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Iterates through SQLite database entries upon online transition. POSTs envelopes to the remote Supabase API. Deletes successfully uploaded envelopes from the local database.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1172-1219</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">OFL-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queue Service</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Duplicate Sync Reconciliation</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">If a peer synchronizes the message online first, the server returns a duplicate key conflict (PostgreSQL code 23505). The local sync logic resolves this conflict by deleting the item from the queue.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L1203-1209</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">2. WebSocket Real-Time Chat &amp; Signalling</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WSG-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Chat Gateway</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WebSocket Server Setup</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">NestJS WebSocket gateway handling real-time peer communication via Socket.io. Configured with CORS allowance and query handshake filters.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">chat.gateway.ts:L15-28</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WSG-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Chat Gateway</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Presence &amp; Redis Sync</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Tracks connected socket IDs in memory. Updates Redis statuses (&apos;online&apos; / &apos;offline&apos;) and broadcasts updates (&apos;user_status&apos;) to all active socket clients.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">chat.gateway.ts:L29-54</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WSG-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Chat Gateway</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Real-Time Message Relay</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Relays E2EE message payloads instantly to online recipients and transmits socket delivery receipts (&apos;message_delivered&apos;) back to the sender.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">chat.gateway.ts:L56-78</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WSG-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Chat Gateway</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Typing Status Indicators</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Broadcasts typing statuses (&apos;typing_status&apos;) between active room members to display visual markers on the UI.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">chat.gateway.ts:L80-88</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WSG-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Chat Gateway</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WebRTC Signalling Bridge</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Exposes events (call_dial, call_sdp_offer, call_sdp_answer, call_ice_candidate, call_hangup) to relay WebRTC messages between dialing peers, establishing direct P2P media tunnels.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">chat.gateway.ts:L90-137</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+  <Worksheet ss:Name="Social &amp; Creator Features">
+    <Table>
+      <Column ss:Width="60"/>
+      <Column ss:Width="100"/>
+      <Column ss:Width="160"/>
+      <Column ss:Width="140"/>
+      <Column ss:Width="440"/>
+      <Column ss:Width="220"/>
+      <Row ss:Height="35" ss:StyleID="Title">
+        <Cell ss:MergeAcross="5"><Data ss:Type="String">SOCIAL &amp; CREATOR FEATURES FEATURES LEDGER</Data></Cell>
+      </Row>
+      <Row ss:Height="10" ss:StyleID="Default">
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">ID</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Module</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Feature Name</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Status</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Working Mechanism &amp; Data Handlers</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Primary Code Reference</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">1. Social Media Engine (Feed, Interactions, Stories)</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Follow Filtered Feed</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Queries follow lists (UserProfile relations). Loads posts published by followed profiles first, then falls back to chronological public posts.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L8-51
+packages/api/src/index.ts:L651-717</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Text &amp; Carousel Posts</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creates user posts containing captions or linked media assets (images/videos). Stores media attachments inside PostMedia relations with positional order coordinates.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L53-80
+packages/api/src/index.ts:L719-761</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Thunder Reactions</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Customizes reactions using &apos;Thunders&apos;. Creates/deletes entries inside ThunderReaction schema and updates the parent Post/Comment counter atomically.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L82-136
+packages/api/src/index.ts:L763-830</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Comment Threading</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Allows users to add comments to posts. Supports parent_id associations to create threaded comment replies, auto-incrementing post comment count records.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L138-155
+App.tsx:L618-660</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">24h Ephemeral Stories</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Enables creating image/video stories. Applies 24-hour expiration dates (expiresAt = now + 24h) and filters active items dynamically on query.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L157-176
+App.tsx:L1111-1120</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-06</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Follow Relationships</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Enables follow/unfollow operations. Mapped through FollowRelation tables. Supports account privacy states (&apos;pending&apos; vs &apos;accepted&apos; follow status).</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">packages/api/src/index.ts:L836-941</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">SOC-07</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Social Engine</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Content Abuse Reports</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creates incident reports against user profiles, posts, or comments specifying reasons. Dispatched to the administrative review database queue.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">feed.service.ts:L178-191
+App.tsx:L47-51</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">2. Creator Space &amp; Subscription Content</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRE-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creator Space</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Creator Channels</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Registers user profiles as creators. Restricts ownership to a single channel per account via database unique constraints.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">creator.service.ts:L12-26
+App.tsx:L10-14</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRE-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creator Space</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Exclusive Paid Content</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Enables uploading channel items labeled as &apos;isExclusive&apos; along with custom purchase unlock price tags (decimal pricing structures).</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">creator.service.ts:L28-46
+App.tsx:L16-28</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRE-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creator Space</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Redis Purchase Ledger</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Maintains purchase records inside Redis key-value stores. Checks user unlock maps (&apos;user:purchase:userId:contentId&apos;) to authorize content views.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">creator.service.ts:L48-69</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">CRE-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Creator Space</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Unlock Purchase Flow</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Processes exclusive content item unlocks, registering purchase confirmations inside the Redis ledger.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">creator.service.ts:L71-80</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+  <Worksheet ss:Name="Admin &amp; Web UI Features">
+    <Table>
+      <Column ss:Width="60"/>
+      <Column ss:Width="100"/>
+      <Column ss:Width="160"/>
+      <Column ss:Width="140"/>
+      <Column ss:Width="440"/>
+      <Column ss:Width="220"/>
+      <Row ss:Height="35" ss:StyleID="Title">
+        <Cell ss:MergeAcross="5"><Data ss:Type="String">ADMIN &amp; WEB UI FEATURES FEATURES LEDGER</Data></Cell>
+      </Row>
+      <Row ss:Height="10" ss:StyleID="Default">
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+        <Cell><Data ss:Type="String"></Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">ID</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Module</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Feature Name</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Status</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Working Mechanism &amp; UI Components</Data></Cell>
+        <Cell ss:StyleID="ColHeader"><Data ss:Type="String">Primary Code Reference</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">1. Administrative Moderation Desk</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">ADM-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Moderation</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Abuse Queue Viewer</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Fetches user-submitted abuse reports, embedding details on reporters, reported targets, post details, and comments.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">admin.service.ts:L8-18
+App.tsx:L1723-1756</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">ADM-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Moderation</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Resolution Actions</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Processes content actions: &apos;ignore&apos; resolves flags; &apos;restrict&apos; unverifies users and flags bios; &apos;delete&apos; removes comment/post rows permanently.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">admin.service.ts:L20-48</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">ADM-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Moderation</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Platform Statistics</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Computes counts (total user profiles, published post counts, total comments, and active pending flags) for executive dashboards.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">admin.service.ts:L50-64</Data></Cell>
+      </Row>
+      <Row ss:Height="25" ss:StyleID="Default">
+        <Cell ss:StyleID="SectionHeader" ss:MergeAcross="5"><Data ss:Type="String">2. Web Frontend Application (Vite / React Native Web)</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-01</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Responsive Sidebar/Bottom</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Implements dark theme (Instagram style) with responsive layout rules, rendering a persistent sidebar on desktop and a bottom navigation bar on mobile viewports (&lt; 768px).</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L967-1100
+App.tsx:L1862-2008</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-02</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Multi-Auth Gateways</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Provides login and signup panels. Supports email, phone SMS OTP validation, password resets, and Google OAuth credentials authentication.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L149-164
+App.tsx:L750-960</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-03</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">E2EE Chat Interface</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Inbox layout listing chat rooms and direct chat streams. Emphasizes security by displaying plain decrypted text bubble overlays directly above their base64 AES-GCM ciphertexts.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L1367-1568
+App.tsx:L2455-2584</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-04</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">E2EE Trust Drawer</Data></Cell>
+        <Cell ss:StyleID="StatusLive"><Data ss:Type="String">Fully Working</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Renders cryptographic handshake summaries in active chats, printing local and remote device public keys to verify communication trust.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L1455-1460</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-05</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Live Stream Simulator</Data></Cell>
+        <Cell ss:StyleID="StatusSim"><Data ss:Type="String">Simulated</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Tab allows users to create mock streams. Displays viewer count metrics, hosts a simulated player, and handles live comments chat updates.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L1660-1720</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-06</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">WebRTC Video/Voice Simulator</Data></Cell>
+        <Cell ss:StyleID="StatusSim"><Data ss:Type="String">Simulated Logs UI</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Simulates WebRTC connections via sequential state logs (sdp offer, answer, and ICE tunnel confirmations) overlaid inside interactive calling screens.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L697-724
+App.tsx:L1760-1781</Data></Cell>
+      </Row>
+      <Row ss:Height="55" ss:StyleID="Default">
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">UIF-07</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Web Interface</Data></Cell>
+        <Cell ss:StyleID="CellBold"><Data ss:Type="String">Vlog Reels Simulator</Data></Cell>
+        <Cell ss:StyleID="StatusSim"><Data ss:Type="String">Simulated Player</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">Shorts tab displays simulated vertical player, mock creator follow toggles, reels descriptions, and interactions metrics overlay.</Data></Cell>
+        <Cell ss:StyleID="CellNormal"><Data ss:Type="String">App.tsx:L1327-1365
+App.tsx:L2322-2393</Data></Cell>
+      </Row>
+    </Table>
+  </Worksheet>
+</Workbook>

@@ -1,0 +1,21 @@
+{
+  "name": "@jamsh/api",
+  "version": "1.0.0",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.39.8",
+    "@tanstack/react-query": "^5.25.0",
+    "zustand": "^4.5.2",
+    "@capacitor/core": "^7.6.7",
+    "@jamsh/types": "*",
+    "@jamsh/shared": "*",
+    "@jamsh/encryption": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.3"
+  }
+}

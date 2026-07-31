@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleDevelopmentRegion</key>
+	<string>en</string>
+	<key>CFBundleDisplayName</key>
+	<string>JamSh</string>
+	<key>CFBundleExecutable</key>
+	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIdentifier</key>
+	<string>com.jamsh.mobile</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<key>CFBundleName</key>
+	<string>$(PRODUCT_NAME)</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>LSRequiresIPhoneOS</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>JamSh uses the local network to discover and exchange E2EE messages with nearby users without the internet.</string>
+	<key>NSBluetoothAlwaysUsageDescription</key>
+	<string>JamSh uses Bluetooth for peer discovery and secure session handshakes.</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>JamSh uses your location to discover nearby chat feeds and enforce geofencing boundary signals.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>JamSh uses your location to discover nearby chat feeds and enforce geofencing boundary signals even in the background.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_jamsh-nearby._tcp</string>
+		<string>_jamsh-nearby._udp</string>
+	</array>
+</dict>
+</plist>

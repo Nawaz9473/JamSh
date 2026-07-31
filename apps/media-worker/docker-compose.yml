@@ -1,0 +1,37 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: jamsh_postgres
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: jamsh_redis
+    ports:
+      - "6379:6379"
+
+  media-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jamsh_media_worker
+    environment:
+      - SUPABASE_URL=https://czxoschackeetzspupxh.supabase.co
+      - SUPABASE_SERVICE_ROLE_KEY=service_role_secret_key_here
+      - DATABASE_URL=postgresql://postgres:password@postgres:5432/postgres
+    depends_on:
+      - postgres
+      - redis
+    restart: on-failure
+
+volumes:
+  pgdata:

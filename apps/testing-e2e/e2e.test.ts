@@ -1,0 +1,146 @@
+import { test, expect } from '@playwright/test';
+import * as path from 'path';
+
+import * as fs from 'fs';
+
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || 'C:/Users/nawaz/.gemini/antigravity-ide/brain/7081fe8d-8299-4e3d-bbd3-dc16e9281e09';
+if (!fs.existsSync(ARTIFACT_DIR)) {
+  fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
+}
+
+test.use({
+  viewport: { width: 1280, height: 800 },
+});
+test.setTimeout(60000);
+
+test('E2EE Messaging Flow - Option 1 Web Verification', async ({ page }) => {
+  const timestamp = Date.now();
+  const userAEmail = `user_a_${timestamp}@test.com`;
+  const userAUsername = `user_a_${timestamp}`;
+  const userBEmail = `user_b_${timestamp}@test.com`;
+  const userBUsername = `user_b_${timestamp}`;
+
+  // 1. Navigate and clean storage
+  await page.goto('http://localhost:5173');
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(2000);
+  try {
+    await page.evaluate(() => localStorage.clear());
+  } catch (e) {
+    await page.waitForTimeout(1000);
+    await page.evaluate(() => localStorage.clear());
+  }
+  await page.reload();
+  await page.waitForLoadState('domcontentloaded');
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_01_loaded.png') });
+
+  // 2. Click Sign up link
+  await page.getByText("Don't have an account?").click();
+  await page.waitForTimeout(500);
+
+  // 3. Signup User A
+  await page.getByPlaceholder('Mobile Number or Email Address').fill(userAEmail);
+  await page.getByPlaceholder('Full Name').fill('User A');
+  await page.getByPlaceholder('Username').fill(userAUsername);
+  await page.locator('select').nth(0).selectOption('1'); // Jan
+  await page.locator('select').nth(1).selectOption('1'); // 1
+  await page.locator('select').nth(2).selectOption('2000'); // 2000
+  await page.getByPlaceholder('Password (Min 8 characters)').fill('password123');
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_02_user_a_form.png') });
+  
+  await page.getByText('Sign up', { exact: true }).click();
+  await page.waitForTimeout(4000); // Wait for signup
+
+  // 4. View User A profile & Edit Bio
+  await page.locator('text="Profile"').click();
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_03_user_a_profile_initial.png') });
+
+  await page.locator('text="Edit profile"').click();
+  await page.waitForTimeout(500);
+  await page.getByPlaceholder('Bio').fill('Hello from User A!');
+  await page.locator('text="Save"').click();
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_04_user_a_profile_bio.png') });
+
+  // 5. Log out
+  await page.locator('text="Log out"').click();
+  await page.waitForTimeout(1000);
+  await page.reload();
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_05_logged_out.png') });
+
+  // 6. Sign up User B
+  await page.getByText("Don't have an account?").click();
+  await page.waitForTimeout(500);
+
+  await page.getByPlaceholder('Mobile Number or Email Address').fill(userBEmail);
+  await page.getByPlaceholder('Full Name').fill('User B');
+  await page.getByPlaceholder('Username').fill(userBUsername);
+  await page.locator('select').nth(0).selectOption('2'); // Feb
+  await page.locator('select').nth(1).selectOption('15'); // 15
+  await page.locator('select').nth(2).selectOption('1998'); // 1998
+  await page.getByPlaceholder('Password (Min 8 characters)').fill('password123');
+  
+  await page.getByText('Sign up', { exact: true }).click();
+  await page.waitForTimeout(4000);
+
+  // 7. View User B profile & Edit Bio
+  await page.locator('text="Profile"').click();
+  await page.waitForTimeout(500);
+  await page.locator('text="Edit profile"').click();
+  await page.waitForTimeout(500);
+  await page.getByPlaceholder('Bio').fill('Hello from User B!');
+  await page.locator('text="Save"').click();
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_06_user_b_profile_bio.png') });
+
+  // 8. Search for User A
+  await page.locator('text="Search"').click();
+  await page.waitForTimeout(500);
+  await page.getByPlaceholder('Type username or display name...').fill(userAUsername);
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_07_search_results.png') });
+
+  // Click View Profile next to user_a
+  await page.locator('text="View"').first().click();
+  await page.waitForTimeout(1000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_08_view_user_a_profile.png') });
+
+  // Click Message to open chat room
+  await page.locator('text="Message"').click();
+  await page.waitForTimeout(1500);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_09_chat_opened.png') });
+
+  // 9. Send E2EE Message from User B to User A
+  await page.getByPlaceholder('Message...').fill('Hi User A, this is an E2E encrypted message!');
+  await page.locator('text="Send"').click();
+  await page.waitForTimeout(2000);
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_10_message_sent.png') });
+
+  // 10. Log out of User B
+  await page.locator('text="Log out"').click();
+  await page.waitForTimeout(1000);
+  await page.reload();
+  await page.waitForTimeout(1000);
+
+  // 11. Log in as User A
+  await page.getByPlaceholder('Mobile Number or Email Address').fill(userAEmail);
+  await page.getByPlaceholder('Password').fill('password123');
+  await page.getByText('Log in', { exact: true }).click();
+  await page.waitForTimeout(3000);
+
+  // 12. Go to messages tab & select chat room
+  await page.locator('text="Messages"').click();
+  await page.waitForTimeout(1000);
+  
+  // Click on the room list card for User B (which has display name "User B")
+  await page.locator('text="User B"').first().click();
+  await page.waitForTimeout(3000); // Wait for key exchange handshake and decryption to verify
+  await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_11_message_decrypted.png') });
+
+  // Assert decrypted text is present on page
+  const decryptedMessage = page.locator('text="Hi User A, this is an E2E encrypted message!"');
+  await expect(decryptedMessage).toBeVisible();
+});

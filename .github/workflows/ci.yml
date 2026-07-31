@@ -1,0 +1,45 @@
+name: JAMSH CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, master, dev ]
+  pull_request:
+    branches: [ main, master, dev ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout Code
+      uses: actions/checkout@v4
+
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: 20
+        cache: 'npm'
+
+    - name: Install Dependencies
+      run: npm install
+
+    - name: Build Core Types Package
+      run: npm run build -w packages/types
+
+    - name: Build Shared Utility Package
+      run: npm run build -w packages/shared
+
+    - name: Build Encryption Package
+      run: npm run build -w packages/encryption
+
+    - name: Build Design System Package
+      run: npm run build -w packages/ui
+
+    - name: Build API Integration Package
+      run: npm run build -w packages/api
+
+    - name: Run Cryptographic Unit Tests
+      run: node packages/encryption/src/test-encryption.mjs
+
+    - name: Compile and Build Web App
+      run: npm run build -w apps/web

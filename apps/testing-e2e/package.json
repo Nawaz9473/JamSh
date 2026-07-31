@@ -1,0 +1,16 @@
+{
+  "name": "@jamsh/testing-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.42.1",
+    "typescript": "^5.3.3"
+  },
+  "devDependencies": {
+    "ws": "^8.21.1"
+  }
+}
