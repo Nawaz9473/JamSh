@@ -75,54 +75,6 @@ serve(async (req) => {
         comment_id: commentId || null,
       });
 
-      // Find owner of target post or comment to notify
-      let receiverId: string | null = null;
-      if (commentId) {
-        const { data: targetComment } = await supabaseClient.from("comments").select("user_id").eq("id", commentId).single();
-        receiverId = targetComment?.user_id || null;
-      } else if (postId) {
-        const { data: targetPost } = await supabaseClient.from("posts").select("user_id").eq("id", postId).single();
-        receiverId = targetPost?.user_id || null;
-      }
-
-      // Trigger notification if receiver is not self
-      if (receiverId && receiverId !== user.id) {
-        const { data: senderProfile } = await supabaseClient
-          .from("profiles")
-          .select("username")
-          .eq("id", user.id)
-          .maybeSingle();
-
-        const senderUsername = senderProfile?.username || "someone";
-        const notifId = crypto.randomUUID();
-        const entityId = commentId || postId;
-
-        await supabaseAdmin.from("notifications").insert({
-          id: notifId,
-          receiver_id: receiverId,
-          sender_id: user.id,
-          type: "THUNDER",
-          status: "UNREAD",
-          priority: "MEDIUM",
-          delivery_status: "PENDING",
-          group_key: `THUNDER_${entityId}_${receiverId}`,
-          metadata: { actors: [senderUsername], count: 1, entityId },
-        });
-
-        await supabaseAdmin.from("outbox").insert({
-          aggregate: "Notification",
-          aggregate_id: notifId,
-          event: "NotificationCreated",
-          payload: {
-            notificationId: notifId,
-            receiverId,
-            type: "THUNDER",
-            priority: "MEDIUM",
-            metadata: { actors: [senderUsername], count: 1, entityId },
-          },
-        });
-      }
-
       return new Response(JSON.stringify({ thundered: true, countChange: 1 }), {
         status: 200,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

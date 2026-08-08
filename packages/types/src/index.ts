@@ -96,9 +96,17 @@ export interface ChatRoom {
   id: string;
   name: string | null;
   type: 'direct' | 'group';
+  avatar_url?: string | null;
+  status?: 'pending' | 'accepted' | 'archived' | 'blocked';
+  last_message_at?: string;
+  last_message_preview?: string | null;
+  last_message_sender_id?: string | null;
+  unread_count?: number;
+  updated_at?: string;
   created_at: string;
   last_message?: Message;
   members?: ChatMember[];
+  peer?: UserProfile;
 }
 
 export interface ChatMember {
@@ -106,6 +114,11 @@ export interface ChatMember {
   room_id: string;
   user_id: string;
   role: 'admin' | 'member';
+  last_read_at?: string;
+  unread_count?: number;
+  is_muted?: boolean;
+  is_archived?: boolean;
+  is_blocked?: boolean;
   joined_at: string;
   profile?: UserProfile;
 }
@@ -119,6 +132,15 @@ export interface Message {
   is_encrypted: boolean;
   nonce?: string; // Nonce for AES decryption
   sender_device_id?: string;
+  delivered_at?: string | null;
+  seen_at?: string | null;
+  edited_at?: string | null;
+  deleted_at?: string | null;
+  reaction?: string | null;
+  reply_to_message_id?: string | null;
+  status?: 'sending' | 'sent' | 'delivered' | 'seen' | 'failed';
+  temp_id?: string;
+  decrypted?: string;
   created_at: string;
   sender?: UserProfile;
   attachments?: MessageAttachment[];

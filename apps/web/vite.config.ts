@@ -6,8 +6,11 @@ export default defineConfig({
   base: './',
   plugins: [react()],
   resolve: {
-    alias: {
-      'react-native': 'react-native-web',
-    },
+    alias: [
+      { find: /^react-native$/, replacement: 'react-native-web' },
+      { find: /^lucide-react-native$/, replacement: 'lucide-react' },
+      { find: /^react-native-svg$/, replacement: 'react-native-web' },
+      { find: /^react-native\/Libraries\/Utilities\/codegenNativeComponent$/, replacement: path.resolve(__dirname, './src/mocks/codegenNativeComponent.js') },
+    ],
   },
 });

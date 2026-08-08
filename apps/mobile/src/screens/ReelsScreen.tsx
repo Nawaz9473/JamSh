@@ -1,13 +1,17 @@
 import React, { useState, useRef, useCallback } from 'react';
-import { View, FlatList, StyleSheet, useWindowDimensions, ActivityIndicator, Text } from 'react-native';
+import { View, FlatList, StyleSheet, useWindowDimensions, ActivityIndicator, Text, TouchableOpacity } from 'react-native';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { fetchReelsFeed } from '@jamsh/api';
+import { Plus } from 'lucide-react-native';
 import ReelPlayer from '../components/ReelPlayer';
+import { useCreateStore, CreateBottomSheet, CreateFlowContainerScreen } from '../features/create';
 
 export default function ReelsScreen() {
   const { height, width } = useWindowDimensions();
   const [activeVideoId, setActiveVideoId] = useState<string | null>(null);
   const viewabilityConfigRef = useRef({ itemVisiblePercentThreshold: 80 });
+
+  const { openBottomSheet, isBottomSheetOpen, currentStep, selectedMedia } = useCreateStore();
 
   const {
     data,
@@ -68,6 +72,11 @@ export default function ReelsScreen() {
     setRefreshing(false);
   };
 
+  // If user is inside active creation flow steps (e.g. MediaPicker, Camera, Edit, Caption)
+  if (selectedMedia.length > 0 || currentStep !== 'PICKER') {
+    return <CreateFlowContainerScreen />;
+  }
+
   if (isLoading) {
     return (
       <View style={[styles.container, styles.center, { height, width }]}>
@@ -108,6 +117,13 @@ export default function ReelsScreen() {
           </View>
         ) : null}
       />
+
+      {/* Floating Cyberpunk "+" Create Button */}
+      <TouchableOpacity style={styles.floatingCreateBtn} activeOpacity={0.8} onPress={openBottomSheet}>
+        <Plus size={28} color="#FFF" />
+      </TouchableOpacity>
+
+      <CreateBottomSheet />
     </View>
   );
 }
@@ -134,5 +150,24 @@ const styles = StyleSheet.create({
   footerLoader: {
     paddingVertical: 16,
     backgroundColor: '#000',
-  }
+  },
+  floatingCreateBtn: {
+    position: 'absolute',
+    bottom: 30,
+    right: 24,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#F59A18',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 8,
+    shadowColor: '#F59A18',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.45,
+    shadowRadius: 10,
+    borderWidth: 2,
+    borderColor: '#FFF',
+  },
 });
+

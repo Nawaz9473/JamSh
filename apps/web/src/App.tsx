@@ -13,9 +13,15 @@ import {
   useWindowDimensions,
   ActivityIndicator,
 } from 'react-native';
+import { StoryTray } from './components/stories/StoryTray';
+import { StoryPlayer } from './components/stories/StoryPlayer';
+import { InstagramInboxView } from './components/messaging/InstagramInboxView';
+import { InstagramChatWindow } from './components/messaging/InstagramChatWindow';
+import { StoryService } from '@jamsh/api';
 import {
   useAuthStore,
   supabase,
+
   initializeE2EKeys,
   fetchFeed,
   createPost,
@@ -98,6 +104,9 @@ import {
   Info,
   Shield,
   LogOut,
+  Image as ImageIcon,
+  BookOpen,
+  X,
   CheckCircle,
   Settings,
   UserCheck,
@@ -108,7 +117,11 @@ import {
   Bell,
   Plus,
   Trash2,
+  Mail,
+  Edit3,
+  ShieldCheck,
 } from 'lucide-react';
+
 import { getDisplayName, formatThunderCount, timeAgo } from '@jamsh/shared';
 
 // Theme config matching Instagram Web Dark Mode
@@ -152,6 +165,91 @@ const JamshLogo = () => (
     }}>
       JAMSH
     </Text>
+  </View>
+);
+
+const JamshLoginHeader = () => (
+  <View style={{ alignItems: 'center', marginBottom: 24, width: '100%' }}>
+    {/* Glowing Logo Container */}
+    <View style={{
+      width: 80,
+      height: 80,
+      borderRadius: 24,
+      borderWidth: 1.5,
+      borderColor: '#F59A18',
+      justifyContent: 'center',
+      alignItems: 'center',
+      backgroundColor: '#000000',
+      boxShadow: '0 0 20px rgba(245, 154, 24, 0.45)',
+      shadowColor: '#F59A18',
+      shadowOffset: { width: 0, height: 0 },
+      shadowOpacity: 0.8,
+      shadowRadius: 15,
+      marginBottom: 20,
+    } as any}>
+      {/* @ts-ignore */}
+      <img
+        src="logo.jpg"
+        alt="Jamsh Logo"
+        style={{
+          width: '74px',
+          height: '74px',
+          borderRadius: '20px',
+          objectFit: 'cover',
+        }}
+      />
+    </View>
+
+    {/* Brand Title */}
+    <Text style={{
+      color: '#FFFFFF',
+      fontFamily: 'Outfit, Sora, sans-serif',
+      fontSize: 28,
+      fontWeight: '900',
+      letterSpacing: 1.5,
+      marginBottom: 12,
+      textAlign: 'center',
+    }}>
+      JAMSH
+    </Text>
+
+    {/* Tagline */}
+    <Text style={{
+      color: '#A8A8A8',
+      fontFamily: 'Manrope, Inter, sans-serif',
+      fontSize: 13,
+      textAlign: 'center',
+      lineHeight: 18,
+      marginBottom: 20,
+      maxWidth: 280,
+    }}>
+      Encrypted signals, live channels & vlogs.{"\n"}One dark pulse.
+    </Text>
+
+    {/* End-to-end encrypted Pill */}
+    <View style={{
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(245, 154, 24, 0.05)',
+      borderWidth: 1,
+      borderColor: 'rgba(245, 154, 24, 0.25)',
+      borderRadius: 16,
+      paddingVertical: 6,
+      paddingHorizontal: 12,
+      gap: 6,
+      marginBottom: 16,
+    }}>
+      <Shield size={12} color="#F59A18" fill="rgba(245, 154, 24, 0.1)" />
+      <Text style={{
+        color: '#F59A18',
+        fontFamily: 'Manrope, sans-serif',
+        fontSize: 11,
+        fontWeight: '600',
+        letterSpacing: 0.2,
+      }}>
+        End-to-end encrypted
+      </Text>
+    </View>
   </View>
 );
 
@@ -634,15 +732,25 @@ export default function App() {
   const [targetPosts, setTargetPosts] = useState<any[]>([]);
   const [isFollowing, setIsFollowing] = useState(false);
 
+  // Story Player state
+  const [isStoryPlayerVisible, setIsStoryPlayerVisible] = useState(false);
+  const [activeStoryAuthorId, setActiveStoryAuthorId] = useState<string | null>(null);
+
+
   // Comments state
   const [expandedPostComments, setExpandedPostComments] = useState<Record<string, boolean>>({});
   const [newCommentText, setNewCommentText] = useState<Record<string, string>>({});
 
-  // Chat messaging
+  // Chat messaging & Redesigned Inbox UI
   const [chatRooms, setChatRooms] = useState<any[]>([]);
   const [selectedRoom, setSelectedRoom] = useState<any>(null);
   const [messages, setMessages] = useState<any[]>([]);
   const [msgInput, setMsgInput] = useState('');
+  const [inboxSearch, setInboxSearch] = useState('');
+  const [inboxSubTab, setInboxSubTab] = useState<'messages' | 'requests'>('messages');
+  const [showNewMessageModal, setShowNewMessageModal] = useState(false);
+  const [newMessageUserSearch, setNewMessageUserSearch] = useState('');
+
 
   // Group Chat state hooks
   const [showGroupCreateModal, setShowGroupCreateModal] = useState(false);
@@ -940,7 +1048,9 @@ export default function App() {
   // Sync messages in selected room
   useEffect(() => {
     if (!selectedRoom) {
-      setMessages([]);
+      if (messages.length > 0) {
+        setMessages([]);
+      }
       return;
     }
 
@@ -990,8 +1100,8 @@ export default function App() {
         const following = user ? await checkIfFollowing(user.id, activeProfileId) : false;
         setIsFollowing(following);
       } else {
-        setTargetProfile(null);
-        setTargetPosts([]);
+        if (targetProfile !== null) setTargetProfile(null);
+        if (targetPosts.length > 0) setTargetPosts([]);
       }
     };
     loadTarget();
@@ -1434,43 +1544,54 @@ export default function App() {
     return (
       <View style={authStyles.container}>
         <View style={authStyles.card}>
-          <View style={{ marginBottom: 24 }}>
-            <JamshLogo />
-          </View>
-          <Text style={authStyles.tagline}>Share stories, explore vlogs, and chat with local End-to-End Encryption.</Text>
+          <JamshLoginHeader />
 
           {authError ? <Text style={authStyles.errorText}>{authError}</Text> : null}
 
           {authMode === 'login' && (
             <View style={{ width: '100%' }}>
-              <TextInput
-                placeholder="Mobile Number or Email Address"
-                placeholderTextColor="#737373"
-                style={authStyles.input}
-                value={emailInput}
-                onChangeText={setEmailInput}
-              />
-              <TextInput
-                placeholder="Password (e.g. password123)"
-                placeholderTextColor="#737373"
-                secureTextEntry
-                style={authStyles.input}
-                value={passwordInput}
-                onChangeText={setPasswordInput}
-              />
-              <TouchableOpacity style={authStyles.btn} onPress={handleAuth}>
-                <Text style={authStyles.btnText}>Log in</Text>
-              </TouchableOpacity>
+              <Text style={authStyles.inputLabel}>EMAIL</Text>
+              <View style={authStyles.inputContainer}>
+                <Mail size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="you@example.com"
+                  placeholderTextColor="#555555"
+                  style={authStyles.innerInput}
+                  value={emailInput}
+                  onChangeText={setEmailInput}
+                />
+              </View>
 
-              <TouchableOpacity style={authStyles.googleBtn} onPress={handleGoogleLogin}>
-                <Text style={authStyles.googleBtnText}>Log in with Google</Text>
-              </TouchableOpacity>
-
-              <View style={authStyles.linkRow}>
-                <TouchableOpacity onPress={() => setAuthMode('forgot_password')}>
-                  <Text style={authStyles.linkText}>Forgot Password?</Text>
+              <Text style={authStyles.inputLabel}>PASSWORD</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="• • • • • • • •"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  style={authStyles.innerInput}
+                  value={passwordInput}
+                  onChangeText={setPasswordInput}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  {showPassword ? (
+                    <EyeOff size={18} color="#737373" />
+                  ) : (
+                    <Eye size={18} color="#737373" />
+                  )}
                 </TouchableOpacity>
               </View>
+
+              <View style={{ width: '100%', alignItems: 'flex-end', marginTop: -4, marginBottom: 24 }}>
+                <TouchableOpacity onPress={() => setAuthMode('forgot_password')}>
+                  <Text style={{ color: '#F59A18', fontSize: 13, fontWeight: '700' }}>Forgot password?</Text>
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={authStyles.btnGradient} onPress={handleAuth}>
+                <Zap size={16} color="#000" fill="#000" style={{ marginRight: 8 }} />
+                <Text style={authStyles.btnTextBlack}>Log in</Text>
+              </TouchableOpacity>
 
               <View style={authStyles.dividerRow}>
                 <View style={authStyles.dividerLine} />
@@ -1478,51 +1599,81 @@ export default function App() {
                 <View style={authStyles.dividerLine} />
               </View>
 
-              <TouchableOpacity onPress={() => setAuthMode('signup')} style={authStyles.toggle}>
-                <Text style={authStyles.toggleText}>Don't have an account? <Text style={{ color: '#0095F6', fontWeight: 'bold' }}>Sign up</Text></Text>
+              <TouchableOpacity style={authStyles.googleBtn} onPress={handleGoogleLogin}>
+                <View style={{ marginRight: 10 }}>
+                  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="white">
+                    <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#fff" />
+                    <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#fff" />
+                    <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" fill="#fff" />
+                    <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#fff" />
+                  </svg>
+                </View>
+                <Text style={authStyles.googleBtnText}>Continue with Google</Text>
               </TouchableOpacity>
+
+              <View style={{ width: '100%', alignItems: 'center', marginTop: 20 }}>
+                <TouchableOpacity onPress={() => setAuthMode('signup')} style={authStyles.toggle}>
+                  <Text style={authStyles.toggleText}>
+                    New to JAMSH? <Text style={{ color: '#F59A18', fontWeight: 'bold' }}>Sign up</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
           {authMode === 'signup' && (
             <View style={{ width: '100%' }}>
-              <TextInput
-                placeholder="Mobile Number or Email Address"
-                placeholderTextColor="#737373"
-                style={authStyles.input}
-                value={emailInput}
-                onChangeText={setEmailInput}
-              />
-              <TextInput
-                placeholder="Full Name"
-                placeholderTextColor="#737373"
-                style={authStyles.input}
-                value={fullNameInput}
-                onChangeText={setFullNameInput}
-              />
-              <TextInput
-                placeholder="Username"
-                placeholderTextColor="#737373"
-                style={authStyles.input}
-                value={usernameInput}
-                onChangeText={setUsernameInput}
-              />
+              <Text style={authStyles.inputLabel}>EMAIL</Text>
+              <View style={authStyles.inputContainer}>
+                <Mail size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="you@example.com"
+                  placeholderTextColor="#555555"
+                  style={authStyles.innerInput}
+                  value={emailInput}
+                  onChangeText={setEmailInput}
+                />
+              </View>
 
-              <Text style={{ color: '#A8A8A8', fontSize: 11, marginTop: 4, marginBottom: 4, alignSelf: 'flex-start' }}>Birthday</Text>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 8 }}>
+              <Text style={authStyles.inputLabel}>FULL NAME</Text>
+              <View style={authStyles.inputContainer}>
+                <User size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Full Name"
+                  placeholderTextColor="#555555"
+                  style={authStyles.innerInput}
+                  value={fullNameInput}
+                  onChangeText={setFullNameInput}
+                />
+              </View>
+
+              <Text style={authStyles.inputLabel}>USERNAME</Text>
+              <View style={authStyles.inputContainer}>
+                <UserPlus size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Username"
+                  placeholderTextColor="#555555"
+                  style={authStyles.innerInput}
+                  value={usernameInput}
+                  onChangeText={setUsernameInput}
+                />
+              </View>
+
+              <Text style={authStyles.inputLabel}>BIRTHDAY</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 16 }}>
                 <select
                   value={birthMonth}
                   onChange={(e) => setBirthMonth(e.target.value)}
                   style={{
                     flex: 1,
-                    height: '38px',
-                    backgroundColor: '#121212',
-                    border: '1px solid #262626',
-                    borderRadius: '3px',
-                    padding: '0 8px',
-                    color: birthMonth ? '#fff' : '#737373',
-                    fontSize: '12px',
-                    marginRight: '6px',
+                    height: '48px',
+                    backgroundColor: '#0c0c0c',
+                    border: '1px solid #202020',
+                    borderRadius: '24px',
+                    padding: '0 16px',
+                    color: birthMonth ? '#fff' : '#555555',
+                    fontSize: '14px',
+                    marginRight: '8px',
                     outline: 'none',
                     cursor: 'pointer'
                   }}
@@ -1531,7 +1682,7 @@ export default function App() {
                   {Array.from({ length: 12 }, (_, i) => {
                     const val = String(i + 1);
                     const name = new Date(2000, i, 1).toLocaleString('en-US', { month: 'short' });
-                    return <option key={val} value={val} style={{ backgroundColor: '#121212', color: '#fff' }}>{name}</option>;
+                    return <option key={val} value={val} style={{ backgroundColor: '#0c0c0c', color: '#fff' }}>{name}</option>;
                   })}
                 </select>
                 <select
@@ -1539,14 +1690,14 @@ export default function App() {
                   onChange={(e) => setBirthDay(e.target.value)}
                   style={{
                     flex: 1,
-                    height: '38px',
-                    backgroundColor: '#121212',
-                    border: '1px solid #262626',
-                    borderRadius: '3px',
-                    padding: '0 8px',
-                    color: birthDay ? '#fff' : '#737373',
-                    fontSize: '12px',
-                    marginRight: '6px',
+                    height: '48px',
+                    backgroundColor: '#0c0c0c',
+                    border: '1px solid #202020',
+                    borderRadius: '24px',
+                    padding: '0 16px',
+                    color: birthDay ? '#fff' : '#555555',
+                    fontSize: '14px',
+                    marginRight: '8px',
                     outline: 'none',
                     cursor: 'pointer'
                   }}
@@ -1554,7 +1705,7 @@ export default function App() {
                   <option value="" disabled>Day</option>
                   {Array.from({ length: 31 }, (_, i) => {
                     const val = String(i + 1);
-                    return <option key={val} value={val} style={{ backgroundColor: '#121212', color: '#fff' }}>{val}</option>;
+                    return <option key={val} value={val} style={{ backgroundColor: '#0c0c0c', color: '#fff' }}>{val}</option>;
                   })}
                 </select>
                 <select
@@ -1562,13 +1713,13 @@ export default function App() {
                   onChange={(e) => setBirthYear(e.target.value)}
                   style={{
                     flex: 1,
-                    height: '38px',
-                    backgroundColor: '#121212',
-                    border: '1px solid #262626',
-                    borderRadius: '3px',
-                    padding: '0 8px',
-                    color: birthYear ? '#fff' : '#737373',
-                    fontSize: '12px',
+                    height: '48px',
+                    backgroundColor: '#0c0c0c',
+                    border: '1px solid #202020',
+                    borderRadius: '24px',
+                    padding: '0 16px',
+                    color: birthYear ? '#fff' : '#555555',
+                    fontSize: '14px',
                     outline: 'none',
                     cursor: 'pointer'
                   }}
@@ -1576,64 +1727,99 @@ export default function App() {
                   <option value="" disabled>Year</option>
                   {Array.from({ length: 100 }, (_, i) => {
                     const val = String(new Date().getFullYear() - i);
-                    return <option key={val} value={val} style={{ backgroundColor: '#121212', color: '#fff' }}>{val}</option>;
+                    return <option key={val} value={val} style={{ backgroundColor: '#0c0c0c', color: '#fff' }}>{val}</option>;
                   })}
                 </select>
               </View>
 
-              <TextInput
-                placeholder="Password (Min 8 characters)"
-                placeholderTextColor="#737373"
-                secureTextEntry
-                style={authStyles.input}
-                value={passwordInput}
-                onChangeText={setPasswordInput}
-              />
-              <TouchableOpacity style={authStyles.btn} onPress={handleRegister}>
-                <Text style={authStyles.btnText}>Sign up</Text>
+              <Text style={authStyles.inputLabel}>PASSWORD</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Password (Min 8 characters)"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  style={authStyles.innerInput}
+                  value={passwordInput}
+                  onChangeText={setPasswordInput}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  {showPassword ? (
+                    <EyeOff size={18} color="#737373" />
+                  ) : (
+                    <Eye size={18} color="#737373" />
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              <TouchableOpacity style={authStyles.btnGradient} onPress={handleRegister}>
+                <Text style={authStyles.btnTextBlack}>Sign up</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setAuthMode('login')} style={authStyles.toggle}>
-                <Text style={authStyles.toggleText}>Have an account? <Text style={{ color: '#0095F6', fontWeight: 'bold' }}>Log in</Text></Text>
-              </TouchableOpacity>
+              <View style={{ width: '100%', alignItems: 'center', marginTop: 12 }}>
+                <TouchableOpacity onPress={() => setAuthMode('login')} style={authStyles.toggle}>
+                  <Text style={authStyles.toggleText}>
+                    Have an account? <Text style={{ color: '#F59A18', fontWeight: 'bold' }}>Log in</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
           {authMode === 'forgot_password' && (
             <View style={{ width: '100%' }}>
-              <Text style={{ color: '#A8A8A8', fontSize: 12, marginBottom: 12, textAlign: 'center' }}>
+              <Text style={{ color: '#A8A8A8', fontSize: 13, marginBottom: 20, textAlign: 'center', lineHeight: 18 }}>
                 Enter your email address and we'll send you a link to reset your password.
               </Text>
-              <TextInput
-                placeholder="Email Address"
-                placeholderTextColor="#737373"
-                style={authStyles.input}
-                value={emailInput}
-                onChangeText={setEmailInput}
-              />
-              <TouchableOpacity style={authStyles.btn} onPress={handleForgotPassword}>
-                <Text style={authStyles.btnText}>Send Reset Link</Text>
+              <Text style={authStyles.inputLabel}>EMAIL</Text>
+              <View style={authStyles.inputContainer}>
+                <Mail size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Email Address"
+                  placeholderTextColor="#555555"
+                  style={authStyles.innerInput}
+                  value={emailInput}
+                  onChangeText={setEmailInput}
+                />
+              </View>
+              <TouchableOpacity style={authStyles.btnGradient} onPress={handleForgotPassword}>
+                <Text style={authStyles.btnTextBlack}>Send Reset Link</Text>
               </TouchableOpacity>
-              <TouchableOpacity onPress={() => setAuthMode('login')} style={authStyles.toggle}>
-                <Text style={authStyles.toggleText}>Back to <Text style={{ color: '#0095F6', fontWeight: 'bold' }}>Log in</Text></Text>
-              </TouchableOpacity>
+              <View style={{ width: '100%', alignItems: 'center', marginTop: 12 }}>
+                <TouchableOpacity onPress={() => setAuthMode('login')} style={authStyles.toggle}>
+                  <Text style={authStyles.toggleText}>
+                    Back to <Text style={{ color: '#F59A18', fontWeight: 'bold' }}>Log in</Text>
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
           )}
 
           {authMode === 'update_password' && (
             <View style={{ width: '100%' }}>
-              <Text style={{ color: '#A8A8A8', fontSize: 12, marginBottom: 12, textAlign: 'center' }}>
+              <Text style={{ color: '#A8A8A8', fontSize: 13, marginBottom: 20, textAlign: 'center', lineHeight: 18 }}>
                 Create a new secure password for your account.
               </Text>
-              <TextInput
-                placeholder="New Password (Min 8 characters)"
-                placeholderTextColor="#737373"
-                secureTextEntry
-                style={authStyles.input}
-                value={passwordInput}
-                onChangeText={setPasswordInput}
-              />
-              <TouchableOpacity style={authStyles.btn} onPress={handleUpdatePassword}>
-                <Text style={authStyles.btnText}>Update Password</Text>
+              <Text style={authStyles.inputLabel}>NEW PASSWORD</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="New Password (Min 8 characters)"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  style={authStyles.innerInput}
+                  value={passwordInput}
+                  onChangeText={setPasswordInput}
+                />
+                <TouchableOpacity onPress={() => setShowPassword(!showPassword)}>
+                  {showPassword ? (
+                    <EyeOff size={18} color="#737373" />
+                  ) : (
+                    <Eye size={18} color="#737373" />
+                  )}
+                </TouchableOpacity>
+              </View>
+              <TouchableOpacity style={authStyles.btnGradient} onPress={handleUpdatePassword}>
+                <Text style={authStyles.btnTextBlack}>Update Password</Text>
               </TouchableOpacity>
             </View>
           )}
@@ -1850,7 +2036,18 @@ export default function App() {
         )}
 
         {isMobile && (
-          <View style={{ flexDirection: 'row', width: '100%', justifyContent: 'space-around', alignItems: 'center' }}>
+          <View style={{
+            flexDirection: 'row',
+            width: '100%',
+            justifyContent: 'space-around',
+            alignItems: 'center',
+            backgroundColor: '#121212',
+            height: 60,
+            borderRadius: 30,
+            paddingHorizontal: 8,
+            borderWidth: 1,
+            borderColor: 'rgba(255, 255, 255, 0.08)',
+          }}>
             <TouchableOpacity onPress={() => { setActiveTab('feed'); setActiveProfileId(null); }}>
               {activeTab === 'feed' ? (
                 <View style={{
@@ -1858,14 +2055,9 @@ export default function App() {
                   height: 42,
                   borderRadius: 21,
                   backgroundColor: '#F59A18',
-                  backgroundImage: 'linear-gradient(135deg, #F59A18 0%, #D47A0E 100%)',
                   justifyContent: 'center',
                   alignItems: 'center',
-                  shadowColor: '#F59A18',
-                  shadowOffset: { width: 0, height: 2 },
-                  shadowOpacity: 0.4,
-                  shadowRadius: 6,
-                } as any}>
+                }}>
                   <Zap size={20} color="#000000" fill="#000000" />
                 </View>
               ) : (
@@ -1874,33 +2066,79 @@ export default function App() {
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setActiveTab('search')}>
-              <Search size={22} color={activeTab === 'search' ? '#F59A18' : '#A8A8A8'} />
+              {activeTab === 'search' ? (
+                <View style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: '#F59A18',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <Search size={20} color="#000000" />
+                </View>
+              ) : (
+                <Search size={22} color="#A8A8A8" />
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity onPress={() => setActiveTab('shorts')}>
-              <Film size={22} color={activeTab === 'shorts' ? '#F59A18' : '#A8A8A8'} />
+              {activeTab === 'shorts' ? (
+                <View style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: '#F59A18',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <Film size={20} color="#000000" />
+                </View>
+              ) : (
+                <Film size={22} color="#A8A8A8" />
+              )}
             </TouchableOpacity>
 
             <TouchableOpacity style={{ position: 'relative' }} onPress={handleNavigateToMessages}>
-              <MessageSquare size={22} color={activeTab === 'messages' ? '#F59A18' : '#A8A8A8'} />
-              {unreadCounts.messages > 0 && (
+              {activeTab === 'messages' ? (
                 <View style={{
-                  position: 'absolute',
-                  top: -2,
-                  right: -2,
-                  width: 6,
-                  height: 6,
-                  borderRadius: 3,
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
                   backgroundColor: '#F59A18',
-                }} />
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                  shadowColor: '#F59A18',
+                  shadowOffset: { width: 0, height: 2 },
+                  shadowOpacity: 0.5,
+                  shadowRadius: 8,
+                }}>
+                  <MessageSquare size={20} color="#000000" fill="#000000" />
+                </View>
+              ) : (
+                <MessageSquare size={22} color="#A8A8A8" />
               )}
             </TouchableOpacity>
 
             <TouchableOpacity onPress={handleNavigateToOwnProfile}>
-              <User size={22} color={activeTab === 'profile' ? '#F59A18' : '#A8A8A8'} />
+              {activeTab === 'profile' ? (
+                <View style={{
+                  width: 42,
+                  height: 42,
+                  borderRadius: 21,
+                  backgroundColor: '#F59A18',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                }}>
+                  <User size={20} color="#000000" />
+                </View>
+              ) : (
+                <User size={22} color="#A8A8A8" />
+              )}
             </TouchableOpacity>
           </View>
         )}
+
 
         {!isMobile && (
           <View style={{ gap: 8, width: '100%' }}>
@@ -1968,106 +2206,16 @@ export default function App() {
                 </ScrollView>
               )}
 
-              {/* Stories Tray */}
-              <ScrollView 
-                horizontal 
-                showsHorizontalScrollIndicator={false} 
-                contentContainerStyle={[
-                  storyStyles.tray, 
-                  { borderBottomWidth: 0, paddingVertical: 12, paddingHorizontal: 16 }
-                ]} 
-                style={{ width: '100%', borderBottomWidth: 0 }}
-              >
-                {/* Broadcast Item (Mobile Only) */}
-                {isMobile && (
-                  <TouchableOpacity 
-                    style={[storyStyles.item, { marginRight: 12 }]} 
-                    onPress={() => setIsCreateModalVisible(true)}
-                  >
-                    <View style={{
-                      width: 56,
-                      height: 56,
-                      borderRadius: 28,
-                      borderWidth: 1.5,
-                      borderColor: '#F59A18',
-                      borderStyle: 'dashed',
-                      justifyContent: 'center',
-                      alignItems: 'center',
-                      backgroundColor: 'rgba(245, 154, 24, 0.05)',
-                    }}>
-                      <Plus size={20} color="#F59A18" />
-                    </View>
-                    <Text style={[storyStyles.userLabel, { fontFamily: 'Manrope, sans-serif', color: '#A8A8A8' }]} numberOfLines={1}>
-                      Broadcast
-                    </Text>
-                  </TouchableOpacity>
-                )}
+              {/* Production Instagram-style Story Tray */}
+              <StoryTray
+                currentUserId={user?.id}
+                onSelectUserStory={(authorId) => {
+                  setActiveStoryAuthorId(authorId);
+                  setIsStoryPlayerVisible(true);
+                }}
+                onCreateStory={() => setIsCreateModalVisible(true)}
+              />
 
-                {mockDb.getProfiles().map((story: any) => {
-                  const isUserLive = story.username === 'zack' || story.username === 'elena';
-                  return (
-                    <TouchableOpacity 
-                      key={story.id} 
-                      style={[storyStyles.item, { marginRight: 12, position: 'relative' }]} 
-                      onPress={() => setActiveProfileId(story.id)}
-                    >
-                      <View style={[
-                        storyStyles.avatarRing, 
-                        isMobile && { 
-                          width: 56, 
-                          height: 56, 
-                          borderRadius: 28, 
-                          borderColor: '#F59A18', 
-                          borderWidth: 1.5 
-                        }
-                      ]}>
-                        <Avatar 
-                          uri={story.avatar_url} 
-                          size={isMobile ? 48 : 56} 
-                          style={[
-                            storyStyles.avatar, 
-                            isMobile && { width: 48, height: 48, borderRadius: 24 }
-                          ]} 
-                        />
-                      </View>
-                      
-                      {/* LIVE Badge (Mobile Only) */}
-                      {isMobile && isUserLive && (
-                        <View style={{
-                          position: 'absolute',
-                          top: 0,
-                          alignSelf: 'center',
-                          backgroundColor: '#F59A18',
-                          borderRadius: 4,
-                          paddingHorizontal: 4,
-                          paddingVertical: 1,
-                          zIndex: 10,
-                          borderWidth: 1,
-                          borderColor: '#000000',
-                        }}>
-                          <Text style={{
-                            color: '#000000',
-                            fontFamily: 'Sora, sans-serif',
-                            fontSize: 7,
-                            fontWeight: '800',
-                            letterSpacing: 0.3,
-                          }}>
-                            LIVE
-                          </Text>
-                        </View>
-                      )}
-
-                      <Text style={[
-                        storyStyles.userLabel, 
-                        { fontFamily: 'Manrope, sans-serif' },
-                        isMobile && { fontSize: 11, color: '#F5F5F5' }
-                      ]} numberOfLines={1}>
-                        {story.username}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
 
               {/* Feed posts list */}
               {posts.map(post => {
@@ -2786,12 +2934,17 @@ export default function App() {
                           <Text style={searchStyles.username}>{res.username}</Text>
                           <Text style={searchStyles.displayName}>{res.display_name}</Text>
                         </View>
-                        <TouchableOpacity style={searchStyles.viewBtn} onPress={() => {
-                          setActiveProfileId(res.id);
-                          setActiveTab('profile');
-                        }}>
-                          <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>View</Text>
-                        </TouchableOpacity>
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <TouchableOpacity style={[searchStyles.viewBtn, { backgroundColor: '#F59A18' }]} onPress={() => handleStartChat(res.id)}>
+                            <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold' }}>Message</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={searchStyles.viewBtn} onPress={() => {
+                            setActiveProfileId(res.id);
+                            setActiveTab('profile');
+                          }}>
+                            <Text style={{ color: '#fff', fontSize: 12, fontWeight: 'bold' }}>View</Text>
+                          </TouchableOpacity>
+                        </View>
                       </TouchableOpacity>
                     ))}
                   </View>
@@ -2907,229 +3060,56 @@ export default function App() {
           </View>
         )}
 
-        {/* INBOX/MESSAGES TAB (E2EE Chat) */}
+        {/* INBOX/MESSAGES TAB (Instagram Direct Experience) */}
         {activeTab === 'messages' && (
-          <View style={[inboxStyles.container, isMobile && { flexDirection: 'column', borderLeftWidth: 0 }]}>
-            {/* Direct inbox sidebar */}
+          <View style={{ flex: 1, flexDirection: isMobile ? 'column' : 'row', height: '100%', backgroundColor: '#000000' }}>
             {(!isMobile || !selectedRoom) && (
-              <View style={[inboxStyles.inboxList, isMobile && { width: width }]}>
-                <View style={inboxStyles.inboxHeader}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-                    <Text style={inboxStyles.headerUser}>{profile?.username || 'zack_thunder'}</Text>
-                    <TouchableOpacity onPress={() => setShowGroupCreateModal(true)} style={{ padding: 6 }}>
-                      <Text style={{ color: instagramTheme.colors.orange, fontSize: 12, fontWeight: 'bold' }}>New Group</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <ScrollView showsVerticalScrollIndicator={false}>
-                  <Text style={inboxStyles.messagesTitle}>Messages</Text>
-                  {chatRooms.map(room => (
-                    <TouchableOpacity
-                      key={room.id}
-                      onPress={() => setSelectedRoom(room)}
-                      style={[inboxStyles.roomRow, selectedRoom?.id === room.id && inboxStyles.roomRowActive]}
-                    >
-                  <Avatar uri={room.type === 'group' ? (room.avatar_url || undefined) : (room.peer?.avatar_url || undefined)} size={56} style={inboxStyles.avatar} />
-                      <View style={inboxStyles.roomTextColumn}>
-                        <Text style={inboxStyles.roomName}>{room.name}</Text>
-                        <Text style={inboxStyles.lastMsg} numberOfLines={1}>
-                          {room.type === 'group' ? `E2EE Group • ${room.members?.length || 0} members` : 'E2EE Handshake Verified • Active'}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
-                  ))}
-                  {chatRooms.length === 0 && (
-                    <Text style={{ color: instagramTheme.colors.textSecondary, paddingHorizontal: 24, marginTop: 12 }}>No chats yet. Go to Search, click on a profile and press "Message".</Text>
-                  )}
-                </ScrollView>
-              </View>
+              <InstagramInboxView
+                selectedRoomId={selectedRoom?.id || null}
+                onSelectRoom={(room) => setSelectedRoom(room)}
+                onOpenCompose={() => setShowNewMessageModal(true)}
+                onOpenNewMessage={() => setShowNewMessageModal(true)}
+                onOpenCreateGroup={() => setShowGroupCreateModal(true)}
+                isMobile={isMobile}
+              />
             )}
 
-            {/* Direct chat window pane */}
             {selectedRoom && (!isMobile || selectedRoom) ? (
-              <View style={inboxStyles.chatWindow}>
-                <View style={inboxStyles.windowHeader}>
-                  {isMobile && (
-                    <TouchableOpacity onPress={() => setSelectedRoom(null)} style={{ marginRight: 12, paddingVertical: 8, paddingHorizontal: 4 }}>
-                      <Text style={{ color: '#fff', fontSize: 20, fontWeight: 'bold' }}>←</Text>
-                    </TouchableOpacity>
-                  )}
-                  <Avatar uri={selectedRoom.type === 'group' ? (selectedRoom.avatar_url || undefined) : (selectedRoom.peer?.avatar_url || undefined)} size={isMobile ? 40 : 56} style={inboxStyles.avatar} />
-                  <View style={{ flex: 1 }}>
-                    <Text style={inboxStyles.windowTitle}>{selectedRoom.name}</Text>
-                    <Text style={inboxStyles.windowSubtitle}>
-                      {selectedRoom.type === 'group' ? `Group Chat • ${selectedRoom.members?.length || 0} members` : `Active now • @${selectedRoom.peer?.username}`}
-                    </Text>
-                  </View>
-
-                  {/* Call buttons trigger WebRTC logic */}
-                  <View style={inboxStyles.headerActions}>
-                    {selectedRoom.type !== 'group' && (
-                      <>
-                        <TouchableOpacity onPress={() => handleDialCall('voice')} style={inboxStyles.actionIcon}><Phone size={20} color={instagramTheme.colors.text} /></TouchableOpacity>
-                        <TouchableOpacity onPress={() => handleDialCall('video')} style={inboxStyles.actionIcon}><Video size={20} color={instagramTheme.colors.text} /></TouchableOpacity>
-                      </>
-                    )}
-                    <TouchableOpacity
-                      style={inboxStyles.actionIcon}
-                      onPress={() => {
-                        if (selectedRoom.type === 'group') {
-                          setShowGroupSettingsModal(true);
-                        } else {
-                          setActiveProfileId(selectedRoom.peer?.id);
-                          setActiveTab('profile');
-                        }
-                      }}
-                    >
-                      <Info size={20} color={instagramTheme.colors.text} />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                             {!isConnected && (
-                  <View style={{
-                    backgroundColor: '#1C1C1E',
-                    borderBottomWidth: 1,
-                    borderBottomColor: '#2C2C2E',
-                    paddingVertical: 8,
-                    paddingHorizontal: 12,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'space-between'
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Text style={{ fontSize: 14 }}>🔵</Text>
-                      <Text style={{ color: '#A8A8A8', fontSize: 12, fontFamily: 'System' }}>
-                        Offline Mode. Bluetooth Discovery active. Relaying encrypted mesh packets.
-                      </Text>
-                    </View>
-                    <TouchableOpacity onPress={() => setShowHotspotInfo(true)}>
-                      <Text style={{ color: '#0095f6', fontSize: 11, fontWeight: 'bold' }}>Mesh Engine</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* E2EE Info banner indicator */}
-                <View style={inboxStyles.e2eeBanner}>
-                  <Lock size={14} color={instagramTheme.colors.orange} style={{ marginRight: 8 }} />
-                  <Text style={inboxStyles.e2eeBannerText}>
-                    End-to-End Encrypted. Messages are encrypted locally on your device with X25519 & AES-256-GCM.
-                  </Text>
-                </View>
-
-                {/* Messages stream */}
-                <ScrollView contentContainerStyle={inboxStyles.messageScroll} showsVerticalScrollIndicator={false}>
-                  <View style={inboxStyles.encryptionHandshakeCard}>
-                    <Shield size={24} color={instagramTheme.colors.orange} />
-                    <Text style={inboxStyles.handshakeTitle}>E2EE Handshake Verified</Text>
-                    <Text style={inboxStyles.handshakeKey}>My Device Public Key: {deviceKeyPair?.publicKey.substring(0, 32)}...</Text>
-                    <Text style={inboxStyles.handshakeKey}>Peer Device Public Key: {mockDb.getUsers().find((u: any) => u.id === selectedRoom.peer?.id)?.devicePublicKey?.substring(0, 32) || '8e5a7b8e1f0e4b85c189b88cf46bb38258e77a11'}...</Text>
-                  </View>
-
-                  {messages.map(msg => {
-                    const isMe = msg.sender_id === user.id;
-                    return (
-                      <View key={msg.id} style={[inboxStyles.msgRow, isMe ? inboxStyles.msgRight : inboxStyles.msgLeft]}>
-                        <View style={[inboxStyles.bubble, isMe ? inboxStyles.bubbleMe : inboxStyles.bubblePeer]}>
-                          <Text style={[inboxStyles.bubbleText, isMe && { color: '#000' }]}>{msg.decrypted || '🔒 Decrypting...'}</Text>
-                          <Text style={inboxStyles.bubbleCipher}>Cipher: {msg.content.substring(0, 36)}...</Text>
-                          
-                          {/* Offline Status Indicators */}
-                          {isMe && msg.local_status && msg.local_status !== 'synced' && (
-                            <Text style={{
-                              color: '#A8A8A8',
-                              fontSize: 10,
-                              marginTop: 2,
-                              alignSelf: 'flex-end'
-                            }}>
-                              {msg.local_status === 'pending_relay' ? '🔵 Relaying via BLE Mesh...' : '⏳ Queued locally'}
-                            </Text>
-                          )}
-                        </View>
-                      </View>
-                    );
-                  })}
-                </ScrollView>
-
-                {/* Message input bar */}
-                <View style={inboxStyles.inputBarRow}>
-                  <TextInput
-                    placeholder="Message..."
-                    placeholderTextColor={instagramTheme.colors.textSecondary}
-                    style={inboxStyles.chatField}
-                    value={msgInput}
-                    onChangeText={setMsgInput}
-                  />
-                  {msgInput.trim().length > 0 && (
-                    <TouchableOpacity onPress={handleSendMessage}>
-                      <Text style={inboxStyles.sendMessageLink}>Send</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {/* Bluetooth Mesh Relay Instructions Modal */}
-                <Modal
-                  visible={showHotspotInfo}
-                  transparent={true}
-                  animationType="fade"
-                  onRequestClose={() => setShowHotspotInfo(false)}
-                >
-                  <View style={{
-                    flex: 1,
-                    backgroundColor: 'rgba(0,0,0,0.85)',
-                    justifyContent: 'center',
-                    alignItems: 'center',
-                    padding: 24
-                  }}>
-                    <View style={{
-                      backgroundColor: '#121212',
-                      borderRadius: 12,
-                      borderWidth: 1,
-                      borderColor: '#262626',
-                      padding: 24,
-                      maxWidth: 420,
-                      width: '100%'
-                    }}>
-                      <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginBottom: 14 }}>🔵 Unified JamSh Mesh Engine</Text>
-                      <Text style={{ color: '#A8A8A8', fontSize: 13, lineHeight: 18, marginBottom: 16 }}>
-                        JamSh uses a Bluetooth Low Energy (BLE) Mesh & Serverless Cloud hybrid routing model.
-                      </Text>
-                      <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold', marginBottom: 8 }}>Routing Workflow:</Text>
-                      
-                      <Text style={{ color: '#E0E0E0', fontSize: 12, marginBottom: 4 }}>
-                        1. <Text style={{ fontWeight: 'bold', color: '#0095f6' }}>Internet Available?</Text> → Delivered instantly via Supabase Cloud server.
-                      </Text>
-                      <Text style={{ color: '#E0E0E0', fontSize: 12, marginBottom: 4 }}>
-                        2. <Text style={{ fontWeight: 'bold', color: '#F59A18' }}>Offline (No Internet)</Text> → Bluetooth Discovery scans for nearby JamSh devices.
-                      </Text>
-                      <Text style={{ color: '#E0E0E0', fontSize: 12, marginBottom: 4 }}>
-                        3. <Text style={{ fontWeight: 'bold', color: '#4CAF50' }}>Nearby Recipient Found?</Text> → Direct Local Bluetooth E2EE Delivery.
-                      </Text>
-                      <Text style={{ color: '#E0E0E0', fontSize: 12, marginBottom: 16 }}>
-                        4. <Text style={{ fontWeight: 'bold', color: '#9C27B0' }}>Relay Mesh Node Found?</Text> → Packet is relayed node-to-node until an internet-enabled node uploads it to Supabase or delivers to recipient.
-                      </Text>
-
-                      <TouchableOpacity
-                        onPress={() => setShowHotspotInfo(false)}
-                        style={{
-                          backgroundColor: '#0095f6',
-                          borderRadius: 6,
-                          paddingVertical: 10,
-                          alignItems: 'center'
-                        }}
-                      >
-                        <Text style={{ color: '#fff', fontWeight: 'bold' }}>Got it</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </Modal>
-              </View>
+              <InstagramChatWindow
+                room={selectedRoom}
+                onBack={() => setSelectedRoom(null)}
+                isMobile={isMobile}
+              />
             ) : (
-              <View style={inboxStyles.inboxPlaceholder}>
-                <MessageSquare size={64} color="#fff" />
-                <Text style={inboxStyles.placeholderTitle}>Your Messages</Text>
-                <Text style={inboxStyles.placeholderText}>Send private photos and E2E encrypted messages to a friend.</Text>
-              </View>
+              !isMobile && (
+                <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#050505', gap: 12 }}>
+                  <View style={{ width: 80, height: 80, borderRadius: 40, borderBottomWidth: 0, borderWidth: 2, borderColor: '#F59A18', justifyContent: 'center', alignItems: 'center' }}>
+                    <MessageSquare size={40} color="#F59A18" />
+                  </View>
+                  <Text style={{ color: '#FFFFFF', fontSize: 22, fontWeight: '700', fontFamily: 'Outfit, sans-serif' }}>
+                    Your Messages
+                  </Text>
+                  <Text style={{ color: '#8E8E93', fontSize: 14, textAlign: 'center', maxWidth: 300 }}>
+                    Send end-to-end encrypted messages, photos, and voice notes to friends on JamSh.
+                  </Text>
+                  <View style={{ flexDirection: 'row', gap: 12, marginTop: 8 }}>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setShowNewMessageModal(true)}
+                      style={{ backgroundColor: '#F59A18', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20 }}
+                    >
+                      <Text style={{ color: '#000000', fontWeight: '700', fontSize: 14 }}>Send Message</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      activeOpacity={0.85}
+                      onPress={() => setShowGroupCreateModal(true)}
+                      style={{ backgroundColor: '#262626', borderWidth: 1, borderColor: '#3A3A3C', paddingHorizontal: 20, paddingVertical: 10, borderRadius: 20 }}
+                    >
+                      <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 14 }}>Create Group</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )
             )}
           </View>
         )}
@@ -3351,32 +3331,244 @@ export default function App() {
         </Modal>
       )}
 
-      {/* CREATE NEW POST OVERLAY MODAL */}
-      <Modal transparent visible={isCreateModalVisible} animationType="slide">
-        <View style={createModalStyles.overlay}>
-          <View style={[createModalStyles.card, isMobile && { width: '92%' }]}>
-            <View style={createModalStyles.header}>
-              <TouchableOpacity onPress={() => setIsCreateModalVisible(false)}><Text style={{ color: '#fff' }}>Cancel</Text></TouchableOpacity>
-              <Text style={createModalStyles.title}>Create new post</Text>
-              <TouchableOpacity onPress={handleSubmitPost}><Text style={{ color: instagramTheme.colors.blue, fontWeight: 'bold' }}>Share</Text></TouchableOpacity>
+      {/* CYBERPUNK CREATE BOTTOM SHEET & NATIVE MEDIA FLOW MODAL */}
+      <Modal transparent visible={isCreateModalVisible} animationType="slide" onRequestClose={() => setIsCreateModalVisible(false)}>
+        <View style={{
+          flex: 1,
+          backgroundColor: 'rgba(0, 0, 0, 0.85)',
+          justifyContent: 'flex-end',
+          alignItems: 'center',
+        }}>
+          <TouchableOpacity
+            style={StyleSheet.absoluteFill}
+            activeOpacity={1}
+            onPress={() => setIsCreateModalVisible(false)}
+          />
+
+          <View style={{
+            width: isMobile ? '100%' : 540,
+            maxHeight: '90%',
+            backgroundColor: '#121212',
+            borderTopLeftRadius: 28,
+            borderTopRightRadius: 28,
+            borderWidth: 1.5,
+            borderColor: 'rgba(245, 154, 24, 0.35)',
+            padding: 24,
+            paddingBottom: isMobile ? 36 : 24,
+            shadowColor: '#F59A18',
+            shadowOffset: { width: 0, height: -4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 16,
+            zIndex: 100,
+          }}>
+            {/* Handle Bar */}
+            <View style={{ alignItems: 'center', marginBottom: 16 }}>
+              <View style={{ width: 44, height: 5, borderRadius: 2.5, backgroundColor: '#333' }} />
             </View>
 
-            <View style={createModalStyles.body}>
-              <TextInput
-                placeholder="Write a caption..."
-                placeholderTextColor={instagramTheme.colors.textSecondary}
-                style={createModalStyles.captionField}
-                multiline
-                value={postContent}
-                onChangeText={setPostContent}
-              />
-              <TextInput
-                placeholder="Paste Image URL (Optional)"
-                placeholderTextColor={instagramTheme.colors.textSecondary}
-                style={createModalStyles.urlField}
-                value={postMediaUrl}
-                onChangeText={setPostMediaUrl}
-              />
+            {/* Header */}
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
+              <Text style={{ color: '#FFF', fontSize: 20, fontWeight: '800', fontFamily: 'Manrope, sans-serif' }}>
+                Create New Content
+              </Text>
+              <TouchableOpacity
+                style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: '#1E1E1E', justifyContent: 'center', alignItems: 'center' }}
+                onPress={() => setIsCreateModalVisible(false)}
+              >
+                <X size={18} color="#A8A8A8" />
+              </TouchableOpacity>
+            </View>
+
+            {/* Option Cards */}
+            <View style={{ gap: 12 }}>
+              {/* Option 1: Create Post */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#1E1E1E',
+                  borderRadius: 16,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: 'rgba(245, 154, 24, 0.25)',
+                }}
+                onPress={() => {
+                  // Trigger Native Media Picker for Post
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*,video/*';
+                  input.multiple = true;
+                  input.onchange = async (e: any) => {
+                    const files = Array.from(e.target.files || []) as File[];
+                    if (files.length > 0) {
+                      const fileUrls = files.map(f => URL.createObjectURL(f));
+                      const captionPrompt = prompt('Write a caption for your post:', postContent || '');
+                      if (captionPrompt !== null) {
+                        try {
+                          const newP = await createPost(captionPrompt, files[0].type.startsWith('video') ? 'video' : 'image', fileUrls);
+                          setPosts(prev => [newP, ...prev]);
+                          setPostContent('');
+                          setIsCreateModalVisible(false);
+                          alert('Post Published! 🚀');
+                        } catch (err: any) {
+                          alert('Failed to publish post: ' + (err?.message || err));
+                        }
+                      }
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(245, 154, 24, 0.15)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                  <ImageIcon size={24} color="#F59A18" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700', fontFamily: 'Manrope, sans-serif' }}>
+                    📸 Create Post
+                  </Text>
+                  <Text style={{ color: '#A8A8A8', fontSize: 12, fontFamily: 'Manrope, sans-serif', marginTop: 2 }}>
+                    Pick photos or videos from camera or gallery
+                  </Text>
+                </View>
+                <Text style={{ color: '#F59A18', fontSize: 20 }}>›</Text>
+              </TouchableOpacity>
+
+              {/* Option 2: Create Reel */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#1E1E1E',
+                  borderRadius: 16,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: 'rgba(245, 154, 24, 0.25)',
+                }}
+                onPress={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'video/*';
+                  input.onchange = async (e: any) => {
+                    const files = Array.from(e.target.files || []) as File[];
+                    if (files.length > 0) {
+                      const videoUrl = URL.createObjectURL(files[0]);
+                      const captionPrompt = prompt('Write a caption for your Reel:', '');
+                      if (captionPrompt !== null) {
+                        try {
+                          const newP = await createPost(captionPrompt || 'New Reel', 'video', [videoUrl]);
+                          setPosts(prev => [newP, ...prev]);
+                          setIsCreateModalVisible(false);
+                          alert('Reel Published! 🎬');
+                        } catch (err: any) {
+                          alert('Failed to publish Reel: ' + (err?.message || err));
+                        }
+                      }
+                    }
+                  };
+                  input.click();
+                }}
+              >
+                <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(245, 154, 24, 0.25)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                  <Video size={24} color="#F59A18" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700', fontFamily: 'Manrope, sans-serif' }}>
+                    🎬 Create Reel
+                  </Text>
+                  <Text style={{ color: '#A8A8A8', fontSize: 12, fontFamily: 'Manrope, sans-serif', marginTop: 2 }}>
+                    Record or select short vertical video
+                  </Text>
+                </View>
+                <Text style={{ color: '#F59A18', fontSize: 20 }}>›</Text>
+              </TouchableOpacity>
+
+              {/* Option 3: Create Story */}
+              <TouchableOpacity
+                activeOpacity={0.8}
+                style={{
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  backgroundColor: '#1E1E1E',
+                  borderRadius: 16,
+                  padding: 16,
+                  borderWidth: 1,
+                  borderColor: 'rgba(245, 154, 24, 0.25)',
+                }}
+                onPress={() => {
+                  const input = document.createElement('input');
+                  input.type = 'file';
+                  input.accept = 'image/*,video/*';
+                  input.onchange = async (e: any) => {
+                    const files = Array.from(e.target.files || []) as File[];
+                    if (files.length > 0) {
+                      const file = files[0];
+                      try {
+                        const fileExt = file.name.split('.').pop() || 'jpg';
+                        const filePath = `${user?.id || 'anon'}/${Date.now()}_${Math.random().toString(36).substring(7)}.${fileExt}`;
+                        
+                        const { data: uploadData, error: uploadErr } = await supabase.storage
+                          .from('stories')
+                          .upload(filePath, file, { upsert: true });
+
+                        let mediaUrl = '';
+                        if (!uploadErr && uploadData) {
+                          const { data: publicUrlData } = supabase.storage.from('stories').getPublicUrl(uploadData.path);
+                          mediaUrl = publicUrlData.publicUrl;
+                        } else {
+                          mediaUrl = URL.createObjectURL(file);
+                        }
+
+                        const isVideo = file.type.startsWith('video');
+                        await StoryService.createStory({
+                          media_url: mediaUrl,
+                          media_type: isVideo ? 'video' : 'image',
+                          caption: 'Story (24h expiry)',
+                        });
+
+                        setIsCreateModalVisible(false);
+                        alert('Story Published (Expires in 24h)! 📖');
+                      } catch (err: any) {
+                        alert('Failed to publish Story: ' + (err?.message || err));
+                      }
+                    }
+                  };
+                  input.click();
+                }}
+
+              >
+                <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(245, 154, 24, 0.2)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
+                  <BookOpen size={24} color="#F59A18" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={{ color: '#FFF', fontSize: 16, fontWeight: '700', fontFamily: 'Manrope, sans-serif' }}>
+                    📖 Create Story
+                  </Text>
+                  <Text style={{ color: '#A8A8A8', fontSize: 12, fontFamily: 'Manrope, sans-serif', marginTop: 2 }}>
+                    24-hour expiring photo/video with overlays
+                  </Text>
+                </View>
+                <Text style={{ color: '#F59A18', fontSize: 20 }}>›</Text>
+              </TouchableOpacity>
+
+              {/* Cancel Button */}
+              <TouchableOpacity
+                style={{
+                  backgroundColor: '#1A1A1A',
+                  borderRadius: 14,
+                  paddingVertical: 16,
+                  alignItems: 'center',
+                  marginTop: 8,
+                  borderWidth: 1,
+                  borderColor: '#2A2A2A',
+                }}
+                onPress={() => setIsCreateModalVisible(false)}
+              >
+                <Text style={{ color: '#F59A18', fontSize: 16, fontWeight: '700', fontFamily: 'Manrope, sans-serif' }}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
         </View>
@@ -3487,6 +3679,71 @@ export default function App() {
                 onChangeText={setEditWebsite}
                 style={createModalStyles.urlField}
               />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* NEW DIRECT MESSAGE OVERLAY MODAL */}
+      <Modal transparent visible={showNewMessageModal} animationType="slide">
+        <View style={createModalStyles.overlay}>
+          <View style={[createModalStyles.card, isMobile && { width: '92%' }]}>
+            <View style={createModalStyles.header}>
+              <TouchableOpacity onPress={() => { setShowNewMessageModal(false); setNewMessageUserSearch(''); }}>
+                <Text style={{ color: '#fff' }}>Cancel</Text>
+              </TouchableOpacity>
+              <Text style={createModalStyles.title}>New Direct Message</Text>
+              <View style={{ width: 45 }} />
+            </View>
+            <View style={{ padding: 16 }}>
+              <TextInput
+                placeholder="Search username or display name..."
+                placeholderTextColor={instagramTheme.colors.textSecondary}
+                value={newMessageUserSearch}
+                onChangeText={setNewMessageUserSearch}
+                style={[createModalStyles.urlField, { marginBottom: 12 }]}
+              />
+              <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
+                {mockDb.getProfiles()
+                  .filter((p: any) => p.id !== user?.id)
+                  .filter((p: any) => {
+                    if (!newMessageUserSearch.trim()) return true;
+                    const q = newMessageUserSearch.toLowerCase();
+                    return (
+                      (p.username && p.username.toLowerCase().includes(q)) ||
+                      (p.display_name && p.display_name.toLowerCase().includes(q))
+                    );
+                  })
+                  .map((profile: any) => (
+                    <TouchableOpacity
+                      key={profile.id}
+                      onPress={async () => {
+                        setShowNewMessageModal(false);
+                        setNewMessageUserSearch('');
+                        await handleStartChat(profile.id);
+                      }}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        paddingVertical: 10,
+                        borderBottomWidth: 1,
+                        borderBottomColor: '#262626',
+                        justifyContent: 'space-between'
+                      }}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Avatar uri={profile.avatar_url || undefined} size={36} style={{ marginRight: 12 }} />
+                        <View>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{profile.display_name}</Text>
+                          <Text style={{ color: '#8e8e93', fontSize: 12 }}>@{profile.username}</Text>
+                        </View>
+                      </View>
+                      <View style={{ backgroundColor: '#F59A18', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 12 }}>
+                        <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold' }}>Chat</Text>
+                      </View>
+                    </TouchableOpacity>
+                  ))}
+              </ScrollView>
             </View>
           </View>
         </View>
@@ -3749,9 +4006,19 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* Production Story Player Modal */}
+      <StoryPlayer
+        visible={isStoryPlayerVisible}
+        authorId={activeStoryAuthorId}
+        currentUserId={user?.id}
+        onClose={() => setIsStoryPlayerVisible(false)}
+        onAuthorChange={(nextAuthorId) => setActiveStoryAuthorId(nextAuthorId)}
+      />
     </SafeAreaView>
   );
 }
+
+
 
 // STYLING SPECIFICATIONS
 const styles = StyleSheet.create({
@@ -4291,62 +4558,188 @@ const inboxStyles = StyleSheet.create({
   container: {
     flex: 1,
     flexDirection: 'row',
+    backgroundColor: '#000000',
     borderLeftWidth: 0.5,
     borderLeftColor: instagramTheme.colors.border,
     height: '100%',
   },
   inboxList: {
-    width: 350,
+    width: 380,
     borderRightWidth: 1,
-    borderRightColor: instagramTheme.colors.border,
+    borderRightColor: 'rgba(255, 255, 255, 0.08)',
+    backgroundColor: '#000000',
+    paddingHorizontal: 16,
+    paddingTop: 16,
   },
-  inboxHeader: {
-    height: 60,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-    borderBottomWidth: 0.5,
-    borderBottomColor: instagramTheme.colors.border,
-  },
-  headerUser: {
-    color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-  },
-  messagesTitle: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 15,
-    paddingHorizontal: 24,
-    marginTop: 20,
-    marginBottom: 12,
-  },
-  roomRow: {
+  newHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    gap: 16,
+    justifyContent: 'space-between',
+    marginBottom: 16,
+    paddingHorizontal: 4,
   },
-  roomRowActive: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  headerAvatarBadge: {
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    backgroundColor: '#121212',
+    borderWidth: 1.5,
+    borderColor: '#F59A18',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  inboxTitle: {
+    color: '#FFFFFF',
+    fontSize: 22,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
+  e2eeSubtitle: {
+    color: '#A8A8A8',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  composeBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: '#F59A18',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchBarContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#121212',
+    borderRadius: 22,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    paddingHorizontal: 14,
+    height: 44,
+    marginBottom: 16,
+  },
+  searchInput: {
+    flex: 1,
+    marginLeft: 10,
+    color: '#FFFFFF',
+    fontSize: 13,
+  },
+  tabSegmentRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginBottom: 16,
+  },
+  subTabBtn: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  subTabActive: {
+    backgroundColor: '#F59A18',
+  },
+  subTabInactive: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  subTabText: {
+    fontSize: 13,
+  },
+  subTabTextActive: {
+    color: '#000000',
+    fontWeight: '700',
+  },
+  subTabTextInactive: {
+    color: '#A8A8A8',
+    fontWeight: '500',
+  },
+  cardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#121212',
+    borderRadius: 26,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.07)',
+  },
+  cardItemActive: {
+    backgroundColor: '#1A1A1A',
+    borderColor: '#F59A18',
+  },
+  cardAvatarWrapper: {
+    position: 'relative',
+    marginRight: 14,
+  },
+  cardAvatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: '#1E1E1E',
   },
   avatar: {
     width: 56,
     height: 56,
     borderRadius: 28,
+    backgroundColor: '#1E1E1E',
   },
-  roomTextColumn: {
+
+  activeDot: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 13,
+    height: 13,
+    borderRadius: 6.5,
+    backgroundColor: '#F59A18',
+    borderWidth: 2,
+    borderColor: '#121212',
+  },
+  cardMiddleColumn: {
     flex: 1,
+    justifyContent: 'center',
+    marginRight: 8,
   },
-  roomName: {
-    color: '#fff',
-    fontWeight: 'bold',
-    fontSize: 14,
+  cardName: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
   },
-  lastMsg: {
-    color: instagramTheme.colors.textSecondary,
+  cardLastMsg: {
+    color: '#A8A8A8',
     fontSize: 12,
+    marginTop: 3,
   },
+  cardRightColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    height: 42,
+  },
+  cardTime: {
+    color: '#777777',
+    fontSize: 11,
+  },
+  unreadBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#F59A18',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  unreadBadgeText: {
+    color: '#000000',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  emptyStateContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 40,
+  },
+
   chatWindow: {
     flex: 1,
     backgroundColor: '#000000',
@@ -4744,13 +5137,10 @@ const authStyles = StyleSheet.create({
   },
   card: {
     width: '100%',
-    maxWidth: 350,
-    borderWidth: 1,
-    borderColor: instagramTheme.colors.border,
-    paddingHorizontal: 28,
-    paddingVertical: 40,
+    maxWidth: 380,
     alignItems: 'center',
-    backgroundColor: '#000',
+    backgroundColor: 'transparent',
+    paddingHorizontal: 16,
   },
   tagline: {
     color: instagramTheme.colors.textSecondary,
@@ -4761,16 +5151,110 @@ const authStyles = StyleSheet.create({
   },
   errorText: {
     color: instagramTheme.colors.red,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: 'bold',
-    marginBottom: 16,
+    marginBottom: 20,
     textAlign: 'center',
   },
+  inputLabel: {
+    color: '#8e8e8e',
+    fontSize: 11,
+    fontWeight: '600',
+    marginBottom: 8,
+    alignSelf: 'flex-start',
+    letterSpacing: 0.8,
+  },
+  inputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    height: 48,
+    backgroundColor: '#0c0c0c',
+    borderWidth: 1,
+    borderColor: '#202020',
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    marginBottom: 16,
+    width: '100%',
+  },
+  innerInput: {
+    flex: 1,
+    color: '#fff',
+    fontSize: 14,
+    outlineStyle: 'none' as any,
+    height: '100%',
+  },
+  btnGradient: {
+    backgroundImage: 'linear-gradient(90deg, #FAD961 0%, #F76B1C 100%)',
+    height: 48,
+    borderRadius: 24,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 12,
+    width: '100%',
+    marginBottom: 20,
+    shadowColor: '#F76B1C',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 10,
+    boxShadow: '0px 4px 20px rgba(247, 107, 28, 0.4)',
+    cursor: 'pointer',
+  } as any,
+  btnTextBlack: {
+    color: '#000000',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  googleBtn: {
+    backgroundColor: '#0c0c0c',
+    borderWidth: 1,
+    borderColor: '#202020',
+    height: 48,
+    borderRadius: 24,
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 8,
+    width: '100%',
+    marginBottom: 16,
+    cursor: 'pointer',
+  } as any,
+  googleBtnText: {
+    color: '#ffffff',
+    fontWeight: 'bold',
+    fontSize: 15,
+  },
+  dividerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+    width: '100%',
+  },
+  dividerLine: {
+    flex: 1,
+    height: 0.5,
+    backgroundColor: '#202020',
+  },
+  dividerText: {
+    color: '#737373',
+    fontSize: 11,
+    fontWeight: 'bold',
+    paddingHorizontal: 16,
+  },
+  toggle: {
+    marginTop: 8,
+  },
+  toggleText: {
+    color: '#8e8e8e',
+    fontSize: 14,
+    textAlign: 'center',
+  },
+  // Legacy styles for backward compatibility in streaming views
   input: {
     height: 38,
     backgroundColor: '#121212',
     borderWidth: 1,
-    borderColor: instagramTheme.colors.border,
+    borderColor: '#262626',
     borderRadius: 3,
     paddingHorizontal: 12,
     color: '#fff',
@@ -4779,7 +5263,7 @@ const authStyles = StyleSheet.create({
     width: '100%',
   },
   btn: {
-    backgroundColor: instagramTheme.colors.blue,
+    backgroundColor: '#0095F6',
     height: 32,
     borderRadius: 4,
     justifyContent: 'center',
@@ -4792,59 +5276,5 @@ const authStyles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
     fontSize: 14,
-  },
-  dividerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: 16,
-    width: '100%',
-  },
-  dividerLine: {
-    flex: 1,
-    height: 0.5,
-    backgroundColor: instagramTheme.colors.border,
-  },
-  dividerText: {
-    color: instagramTheme.colors.textSecondary,
-    fontSize: 11,
-    fontWeight: 'bold',
-    paddingHorizontal: 16,
-  },
-  toggle: {
-    marginTop: 8,
-  },
-  toggleText: {
-    color: instagramTheme.colors.text,
-    fontSize: 13,
-    textAlign: 'center',
-  },
-  googleBtn: {
-    backgroundColor: '#ffffff',
-    height: 36,
-    borderRadius: 4,
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 8,
-    width: '100%',
-    marginBottom: 8,
-  },
-  googleBtnText: {
-    color: '#000000',
-    fontWeight: 'bold',
-    fontSize: 13,
-  },
-  linkText: {
-    color: '#0095F6',
-    fontSize: 12,
-    fontWeight: 'bold',
-    textAlign: 'center',
-  },
-  linkRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    marginTop: 12,
-    marginBottom: 16,
   },
 });

@@ -10,7 +10,11 @@ export default defineConfig({
   expect: {
     timeout: 5000
   },
-  reporter: 'list',
+  reporter: [
+    ['list'],
+    ['html', { outputFolder: 'C:/Users/nawaz/.gemini/antigravity-ide/brain/428b5a86-50af-43d1-9e29-475f07e98d54/playwright-report', open: 'never' }],
+    ['json', { outputFile: 'C:/Users/nawaz/.gemini/antigravity-ide/brain/428b5a86-50af-43d1-9e29-475f07e98d54/playwright-report/results.json' }]
+  ],
   use: {
     trace: 'on-first-retry',
   },

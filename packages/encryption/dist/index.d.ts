@@ -7,6 +7,7 @@ export interface KeyPair {
     publicKey: string;
 }
 export declare function generateKeyPair(): KeyPair;
+export declare function generateDeterministicKeyPair(seedInput: string): Promise<KeyPair>;
 export declare function deriveSharedSecret(myPrivateKeyHex: string, peerPublicKeyHex: string): string;
 export declare function deriveAESKey(sharedSecretHex: string): Promise<CryptoKey>;
 export declare function importRawAESKey(rawKeyHex: string): Promise<CryptoKey>;

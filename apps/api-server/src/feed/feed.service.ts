@@ -393,7 +393,7 @@ export class FeedService {
       data: {
         userId,
         mediaUrl,
-        mediaType,
+        mediaType: mediaType || 'image',
         expiresAt,
       }
     });
@@ -405,6 +405,7 @@ export class FeedService {
       orderBy: { createdAt: 'desc' }
     });
   }
+
 
   async fileReport(userId: string, reportedUserId?: string, postId?: string, commentId?: string, reason?: string): Promise<any> {
     if (!reportedUserId && !postId && !commentId) {

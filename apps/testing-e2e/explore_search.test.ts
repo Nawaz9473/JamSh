@@ -20,11 +20,11 @@ test.describe('Instagram-Style Explore & Search E2E Verification', () => {
     await page.waitForTimeout(1000);
 
     // 2. Click Sign up link
-    await page.getByText("Don't have an account?").click();
+    await page.getByText("Sign up", { exact: true }).click();
     await page.waitForTimeout(500);
 
     // 3. Signup User
-    await page.getByPlaceholder('Mobile Number or Email Address').fill(userEmail);
+    await page.getByPlaceholder('you@example.com').fill(userEmail);
     await page.getByPlaceholder('Full Name').fill('Explore Tester');
     await page.getByPlaceholder('Username').fill(username);
     await page.locator('select').nth(0).selectOption('1'); // Jan

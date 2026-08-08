@@ -1,4 +1,5 @@
 import { UserProfile, Post, ChatRoom, Message, LiveStream, Notification, NotificationCounts } from '@jamsh/types';
+export * from './services/MessagingService';
 export declare const JamshNearby: any;
 /**
  * Checks and requests location and bluetooth permissions on native platforms.
@@ -115,9 +116,12 @@ export declare function stopNearbyScanning(): Promise<void>;
 export declare function checkIsOnline(): Promise<boolean>;
 export declare function syncOfflineQueue(myUserId: string): Promise<void>;
 export declare function initializeNearbyListeners(myUserId: string): Promise<void>;
-export declare function fetchChatRooms(): Promise<any[]>;
+export declare function fetchChatRooms(subTab?: 'messages' | 'requests'): Promise<any[]>;
+export declare function generateDeterministicUUID(seed: string): string;
 export declare function createChatRoom(peerId: string): Promise<ChatRoom>;
-export declare function fetchMessages(roomId: string): Promise<Message[]>;
+export declare function fetchMessages(roomId: string, limit?: number, beforeTimestamp?: string): Promise<Message[]>;
+export declare function markRoomAsSeen(roomId: string): Promise<void>;
+export declare function acceptMessageRequest(roomId: string): Promise<void>;
 export declare function sendEncryptedMessage(roomId: string, recipientId: string, plaintext: string): Promise<Message>;
 export declare function decryptReceivedMessage(message: Message, senderId: string): Promise<string>;
 export declare function setupCallSignalChannel(roomId: string, onSignal: (signal: any) => void): {
@@ -144,10 +148,7 @@ export declare function fetchTrendingContent(): Promise<any>;
 export declare function fetchSearchSuggestions(query: string): Promise<any[]>;
 export declare function searchExploreAll(query: string): Promise<any>;
 export declare function logSearchQuery(query: string): Promise<void>;
-export declare function initializeE2EKeys(userId: string, deviceId: string): Promise<{
-    privateKey: string;
-    publicKey: string;
-}>;
+export declare function initializeE2EKeys(userId: string, deviceId: string): Promise<any>;
 export declare function fetchReelsFeed(limit?: number, cursorTimestamp?: string, cursorId?: string): Promise<any[]>;
 export declare function likeReel(videoId: string): Promise<{
     liked: boolean;
@@ -179,4 +180,4 @@ export declare function fetchUnreadCounts(): Promise<NotificationCounts>;
 export declare function markNotificationAsRead(id: string): Promise<boolean>;
 export declare function markAllNotificationsAsRead(): Promise<boolean>;
 export declare function deleteNotification(id: string): Promise<boolean>;
-export {};
+export * from './services/StoryService.js';

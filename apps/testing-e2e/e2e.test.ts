@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import * as fs from 'fs';
 
-const ARTIFACT_DIR = process.env.ARTIFACT_DIR || 'C:/Users/nawaz/.gemini/antigravity-ide/brain/7081fe8d-8299-4e3d-bbd3-dc16e9281e09';
+const ARTIFACT_DIR = process.env.ARTIFACT_DIR || 'C:/Users/nawaz/.gemini/antigravity-ide/brain/428b5a86-50af-43d1-9e29-475f07e98d54';
 if (!fs.existsSync(ARTIFACT_DIR)) {
   fs.mkdirSync(ARTIFACT_DIR, { recursive: true });
 }
@@ -36,11 +36,11 @@ test('E2EE Messaging Flow - Option 1 Web Verification', async ({ page }) => {
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_01_loaded.png') });
 
   // 2. Click Sign up link
-  await page.getByText("Don't have an account?").click();
+  await page.getByText("Sign up", { exact: true }).click();
   await page.waitForTimeout(500);
 
   // 3. Signup User A
-  await page.getByPlaceholder('Mobile Number or Email Address').fill(userAEmail);
+  await page.getByPlaceholder('you@example.com').fill(userAEmail);
   await page.getByPlaceholder('Full Name').fill('User A');
   await page.getByPlaceholder('Username').fill(userAUsername);
   await page.locator('select').nth(0).selectOption('1'); // Jan
@@ -72,10 +72,10 @@ test('E2EE Messaging Flow - Option 1 Web Verification', async ({ page }) => {
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_05_logged_out.png') });
 
   // 6. Sign up User B
-  await page.getByText("Don't have an account?").click();
+  await page.getByText("Sign up", { exact: true }).click();
   await page.waitForTimeout(500);
 
-  await page.getByPlaceholder('Mobile Number or Email Address').fill(userBEmail);
+  await page.getByPlaceholder('you@example.com').fill(userBEmail);
   await page.getByPlaceholder('Full Name').fill('User B');
   await page.getByPlaceholder('Username').fill(userBUsername);
   await page.locator('select').nth(0).selectOption('2'); // Feb
@@ -115,32 +115,57 @@ test('E2EE Messaging Flow - Option 1 Web Verification', async ({ page }) => {
 
   // 9. Send E2EE Message from User B to User A
   await page.getByPlaceholder('Message...').fill('Hi User A, this is an E2E encrypted message!');
-  await page.locator('text="Send"').click();
+  await page.locator('.lucide-send').first().click();
   await page.waitForTimeout(2000);
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_10_message_sent.png') });
 
-  // 10. Log out of User B
-  await page.locator('text="Log out"').click();
-  await page.waitForTimeout(1000);
-  await page.reload();
+  await page.evaluate(() => localStorage.clear());
+  await page.goto('http://localhost:5173');
   await page.waitForTimeout(1000);
 
   // 11. Log in as User A
-  await page.getByPlaceholder('Mobile Number or Email Address').fill(userAEmail);
-  await page.getByPlaceholder('Password').fill('password123');
+  await page.getByPlaceholder('you@example.com').fill(userAEmail);
+  await page.getByPlaceholder("• • • • • • • •").fill('password123');
   await page.getByText('Log in', { exact: true }).click();
   await page.waitForTimeout(3000);
 
-  // 12. Go to messages tab & select chat room
-  await page.locator('text="Messages"').click();
+  // 12. Open chat room with User B via Search & view decrypted message
+  const searchBtn = page.locator('.lucide-search').first();
+  if (await searchBtn.isVisible()) {
+    await searchBtn.click({ force: true });
+  } else {
+    await page.locator('text="Search"').first().click({ force: true });
+  }
   await page.waitForTimeout(1000);
-  
-  // Click on the room list card for User B (which has display name "User B")
-  await page.locator('text="User B"').first().click();
-  await page.waitForTimeout(3000); // Wait for key exchange handshake and decryption to verify
+
+  await page.getByPlaceholder('Type username or display name...').fill(userBUsername);
+  await page.waitForTimeout(1500);
+
+  // Click Message/View button specifically within User B search result row
+  const userBRow = page.locator('div').filter({ hasText: userBUsername }).first();
+  const actionBtn = userBRow.locator('text=/Message|View/i').first();
+  if (await actionBtn.isVisible()) {
+    await actionBtn.click({ force: true });
+    await page.waitForTimeout(1000);
+  }
+
+  // If View opened profile page, click Message button on profile page
+  const profileMsgBtn = page.getByText('Message', { exact: true }).first();
+  if (await profileMsgBtn.isVisible()) {
+    await profileMsgBtn.click({ force: true });
+    await page.waitForTimeout(1000);
+  }
+
+  await page.waitForTimeout(4000);
+
+  const acceptBtn = page.getByText('Accept', { exact: true }).first();
+  if (await acceptBtn.isVisible()) {
+    await acceptBtn.click({ force: true });
+    await page.waitForTimeout(2000);
+  }
+
   await page.screenshot({ path: path.join(ARTIFACT_DIR, 'e2e_11_message_decrypted.png') });
 
   // Assert decrypted text is present on page
-  const decryptedMessage = page.locator('text="Hi User A, this is an E2E encrypted message!"');
-  await expect(decryptedMessage).toBeVisible();
+  await expect(page.getByText('Hi User A, this is an E2E encrypted message!', { exact: false }).last()).toBeVisible({ timeout: 15000 });
 });

@@ -35,6 +35,36 @@ export function generateKeyPair() {
         publicKey: bytesToHex(publicKey),
     };
 }
+export async function generateDeterministicKeyPair(seedInput) {
+    let cryptoObj = typeof globalThis !== 'undefined' ? (globalThis.crypto || globalThis.msCrypto) : null;
+    if ((!cryptoObj || !cryptoObj.subtle) && typeof require !== 'undefined') {
+        try {
+            cryptoObj = require('crypto').webcrypto;
+        }
+        catch (e) { }
+    }
+    let seedBytes;
+    if (cryptoObj && cryptoObj.subtle) {
+        const encoder = new TextEncoder();
+        const hash = await cryptoObj.subtle.digest('SHA-256', encoder.encode(seedInput));
+        seedBytes = new Uint8Array(hash);
+    }
+    else {
+        seedBytes = new Uint8Array(32);
+        for (let i = 0; i < 32; i++) {
+            seedBytes[i] = (i * 31 + seedInput.length) & 0xff;
+        }
+        for (let i = 0; i < seedInput.length; i++) {
+            const charCode = seedInput.charCodeAt(i);
+            seedBytes[i % 32] = (seedBytes[i % 32] ^ charCode ^ (i * 17)) & 0xff;
+        }
+    }
+    const publicKey = x25519.getPublicKey(seedBytes);
+    return {
+        privateKey: bytesToHex(seedBytes),
+        publicKey: bytesToHex(publicKey),
+    };
+}
 // Derive a shared secret from our private key and the peer's public key
 export function deriveSharedSecret(myPrivateKeyHex, peerPublicKeyHex) {
     const myPrivateKey = hexToBytes(myPrivateKeyHex);
