@@ -1,5 +1,5 @@
 import { UserProfile, Post, ChatRoom, Message, LiveStream, Notification, NotificationCounts } from '@jamsh/types';
-export * from './services/MessagingService';
+export * from './services/MessagingService.js';
 export declare const JamshNearby: any;
 /**
  * Checks and requests location and bluetooth permissions on native platforms.
@@ -19,12 +19,14 @@ export declare const supabase: import("@supabase/supabase-js").SupabaseClient<an
 interface AuthState {
     user: any | null;
     profile: UserProfile | null;
+    authSetupRequired: boolean;
     deviceKeyPair: {
         privateKey: string;
         publicKey: string;
     } | null;
     groupKeys: Record<string, string>;
     setSession: (user: any, profile: UserProfile | null) => void;
+    setAuthSetupRequired: (required: boolean) => void;
     setDeviceKeyPair: (keys: {
         privateKey: string;
         publicKey: string;
@@ -80,9 +82,12 @@ export declare function signUpUser(contact: string, username: string, displayNam
     user: any;
     profile: UserProfile;
 }>;
+export declare function signOutUser(): Promise<void>;
 export declare function fetchProfile(userId: string): Promise<UserProfile | null>;
+export declare function fetchProfileByEmail(email: string): Promise<UserProfile | null>;
+export declare function completeGoogleProfile(username: string, displayName: string, birthday?: string, password?: string): Promise<UserProfile>;
 export declare function updateProfile(profileUpdates: Partial<UserProfile>): Promise<UserProfile>;
-export declare function searchUsers(query: string): Promise<UserProfile[]>;
+export declare function searchUsers(query: string, limit?: number, excludeSelf?: boolean): Promise<UserProfile[]>;
 export declare function forgotPassword(email: string, redirectTo: string): Promise<void>;
 export declare function updatePassword(password: string): Promise<void>;
 export declare function signInWithGoogle(redirectTo?: string): Promise<void>;
@@ -93,6 +98,8 @@ export declare function verifyPhoneOtp(phone: string, token: string): Promise<{
 }>;
 export declare function setupAuthListener(): () => void;
 export declare function fetchFeed(page?: number, limit?: number): Promise<Post[]>;
+export declare function uploadPostImage(file: Blob, fileName: string): Promise<string>;
+export declare function removePostMedia(storageReference: string): Promise<void>;
 export declare function createPost(content: string, type: 'text' | 'image' | 'video' | 'multiple', mediaUrls: string[]): Promise<Post>;
 export declare function toggleThunderReaction(postId: string, commentId?: string): Promise<{
     thundered: boolean;
@@ -102,6 +109,16 @@ export declare function checkIfFollowing(followerId: string, followingId: string
 export declare function followUser(followingId: string): Promise<string>;
 export declare function fetchFollowers(userId: string): Promise<UserProfile[]>;
 export declare function fetchFollowing(userId: string): Promise<UserProfile[]>;
+export declare function fetchPendingFollowRequests(): Promise<Array<{
+    id: string;
+    follower_id: string;
+    following_id: string;
+    status: string;
+    created_at: string;
+    follower?: UserProfile;
+}>>;
+export declare function respondToFollowRequest(requestId: string, decision: 'accepted' | 'rejected'): Promise<void>;
+export declare function cancelFollowRequest(followingId: string): Promise<void>;
 export declare function cacheProfile(profile: UserProfile): void;
 export declare function getCachedProfiles(): UserProfile[];
 export declare function cachePublicKey(myUserId: string, peerId: string, publicKey: string): void;
@@ -155,8 +172,80 @@ export declare function likeReel(videoId: string): Promise<{
     countChange: number;
 }>;
 export declare function commentOnReel(videoId: string, content: string, parentId?: string): Promise<any>;
+export declare function fetchReelComments(videoId: string, limit?: number): Promise<any[]>;
+export declare function deleteReelComment(commentId: string): Promise<boolean>;
+export declare function fetchCreatorReels(userId: string): Promise<any[]>;
+export declare function updateReelMetadata(videoId: string, updates: {
+    caption?: string;
+    hashtags?: string[];
+    visibility?: 'public' | 'private';
+}): Promise<any>;
+export declare function deleteReel(videoId: string): Promise<boolean>;
+export declare function toggleReelSave(videoId: string): Promise<{
+    saved: boolean;
+}>;
+export declare function shareReel(videoId: string, platform?: string): Promise<void>;
 export declare function trackVideoInteraction(videoId: string, type: 'watch' | 'like' | 'share' | 'save' | 'comment' | 'skip' | 'report' | 'hide' | 'not_interested', watchTime?: number, watchPercent?: number): Promise<void>;
 export declare function uploadReel(videoUrl: string, thumbnailUrl: string, caption: string, hashtags: string[], interests: string[], duration: number): Promise<any>;
+export interface ReelEditManifest {
+    version: 1;
+    clips: Array<{
+        path: string;
+        trimStart?: number;
+        trimEnd?: number;
+        speed?: number;
+        volume?: number;
+    }>;
+    filter?: 'none' | 'cyber_gold' | 'dark_neon' | 'cyber_mono' | 'vivid_contrast';
+    textOverlays?: Array<{
+        text: string;
+        start: number;
+        end: number;
+        x: number;
+        y: number;
+        color: string;
+        fontSize: number;
+    }>;
+    audio?: {
+        path?: string;
+        volume: number;
+    };
+    coverTimeSeconds?: number;
+}
+export interface ReelUploadJob {
+    jobId: string;
+    videoId: string;
+    rawVideoPath: string;
+    status: 'queued';
+}
+export interface ReelJobStatus {
+    id: string;
+    video_id: string | null;
+    status: 'queued' | 'processing' | 'completed' | 'failed';
+    attempts: number;
+    max_attempts: number;
+    error_log: string | null;
+    metadata: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+}
+export declare function createReelUploadJob(file: Blob, metadata: {
+    caption: string;
+    hashtags: string[];
+    interests: string[];
+    visibility: 'public' | 'private';
+    duration: number;
+    width?: number;
+    height?: number;
+    thumbnailPath?: string;
+    editManifest?: ReelEditManifest;
+}, onProgress?: (progress: number) => void): Promise<ReelUploadJob>;
+export declare function getReelUploadJob(jobId: string): Promise<ReelJobStatus>;
+export declare function waitForReelPublication(jobId: string, options?: {
+    timeoutMs?: number;
+    intervalMs?: number;
+    onStatus?: (job: ReelJobStatus) => void;
+}): Promise<ReelJobStatus>;
 export interface QueuedEngagementAction {
     id: string;
     type: 'thunder' | 'comment' | 'save' | 'share';
@@ -181,3 +270,14 @@ export declare function markNotificationAsRead(id: string): Promise<boolean>;
 export declare function markAllNotificationsAsRead(): Promise<boolean>;
 export declare function deleteNotification(id: string): Promise<boolean>;
 export * from './services/StoryService.js';
+export declare function generateOfflinePairingUrl(user: UserProfile, myPublicKeyHex: string): string;
+export declare function parseOfflinePairingUrl(pairingUrl: string): {
+    userId: string;
+    username: string;
+    publicKey: string;
+} | null;
+export declare function completeOfflinePairing(myUserId: string, peer: {
+    userId: string;
+    username: string;
+    publicKey: string;
+}): ChatRoom;

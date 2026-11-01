@@ -1,5 +1,6 @@
 export interface UserProfile {
     id: string;
+    email?: string | null;
     username: string;
     display_name: string | null;
     avatar_url: string | null;
@@ -129,6 +130,9 @@ export interface Message {
     reaction?: string | null;
     reply_to_message_id?: string | null;
     status?: 'sending' | 'sent' | 'delivered' | 'seen' | 'failed';
+    local_status?: 'sending' | 'queued' | 'sent_nearby' | 'relayed_nearby' | 'delivered_nearby' | 'synced' | 'synced_online' | 'failed';
+    hop_count?: number;
+    transport?: 'online' | 'ble_direct' | 'ble_mesh' | 'queued';
     temp_id?: string;
     decrypted?: string;
     created_at: string;

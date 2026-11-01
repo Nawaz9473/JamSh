@@ -77,7 +77,7 @@ public class JamshNearbyPlugin extends Plugin {
     private static final String KEY_ALIAS = "JamshSecureKeysAES";
     private static final String PREFS_NAME = "JamshSecurePrefs";
 
-    // BLE Service and Characteristic UUIDs (Standardized mapping)
+    // BLE Service and Characteristic UUIDs (Standardized Bitchat-compliant mapping)
     private static final UUID SERVICE_UUID = UUID.fromString("0000fd6f-0000-1000-8000-00805f9b34fb");
     private static final UUID CHARACTERISTIC_WRITE_UUID = UUID.fromString("0000fd6f-0001-1000-8000-00805f9b34fb");
     private static final UUID CHARACTERISTIC_READ_UUID = UUID.fromString("0000fd6f-0002-1000-8000-00805f9b34fb");
@@ -94,6 +94,23 @@ public class JamshNearbyPlugin extends Plugin {
 
     // Temporary ACK caching for reading nodes
     private final Map<String, String> pendingAcks = new ConcurrentHashMap<>();
+
+    // Reassembly buffer for incoming chunked GATT writes: deviceAddress -> ChunkReassembly
+    private static class ChunkReassembly {
+        int totalChunks;
+        Map<Integer, byte[]> chunks = new ConcurrentHashMap<>();
+        long createdAt = System.currentTimeMillis();
+    }
+    private final Map<String, ChunkReassembly> incomingBuffers = new ConcurrentHashMap<>();
+
+    // Active sending states for chunked client writes: deviceAddress -> ClientSendSession
+    private static class ClientSendSession {
+        PluginCall call;
+        List<byte[]> chunks;
+        int currentIndex = 0;
+        BluetoothGattCharacteristic writeChar;
+    }
+    private final Map<String, ClientSendSession> activeSendSessions = new ConcurrentHashMap<>();
 
     // Local DB Helper
     private QueueDbHelper dbHelper;
@@ -304,7 +321,7 @@ public class JamshNearbyPlugin extends Plugin {
     }
 
     // -----------------------------------------------------------------
-    // HYBRID BLUETOOTH LE ENGINE
+    // HYBRID BLUETOOTH LE ENGINE (ADVERTISING & SCANNING)
     // -----------------------------------------------------------------
 
     @SuppressLint("MissingPermission")
@@ -330,9 +347,12 @@ public class JamshNearbyPlugin extends Plugin {
             return;
         }
 
-        // Include Internet Availability Flag in custom discovery token payload
+        // Strictly enforce that discovery token fits into legacy 31-byte ADV packet
         boolean isOnline = isNetworkAvailable();
         String activeDiscoveryPayload = discoveryId + "|" + (isOnline ? "1" : "0");
+        if (activeDiscoveryPayload.length() > 10) {
+            activeDiscoveryPayload = activeDiscoveryPayload.substring(0, 10);
+        }
 
         AdvertiseSettings settings = new AdvertiseSettings.Builder()
                 .setAdvertiseMode(AdvertiseSettings.ADVERTISE_MODE_LOW_LATENCY)
@@ -343,7 +363,7 @@ public class JamshNearbyPlugin extends Plugin {
         AdvertiseData data = new AdvertiseData.Builder()
                 .setIncludeDeviceName(false)
                 .addServiceUuid(new ParcelUuid(SERVICE_UUID))
-                // Attach custom payload string to manufacture space or service data safely
+                // Attach compact payload: 16 bytes UUID + 10 bytes payload <= 31 bytes limit!
                 .addServiceData(new ParcelUuid(SERVICE_UUID), activeDiscoveryPayload.getBytes(StandardCharsets.UTF_8))
                 .build();
 
@@ -377,13 +397,13 @@ public class JamshNearbyPlugin extends Plugin {
         @Override
         public void onStartSuccess(AdvertiseSettings settingsInEffect) {
             super.onStartSuccess(settingsInEffect);
-            Log.d(TAG, "[Nearby] BLE Advertise success");
+            Log.d(TAG, "[Nearby Android] BLE Advertise started successfully within 31-byte PDU limit");
         }
 
         @Override
         public void onStartFailure(int errorCode) {
             super.onStartFailure(errorCode);
-            Log.e(TAG, "[Nearby] BLE Advertise failed with code: " + errorCode);
+            Log.e(TAG, "[Nearby Android] BLE Advertise failed with code: " + errorCode);
         }
     };
 
@@ -451,18 +471,17 @@ public class JamshNearbyPlugin extends Plugin {
             String payload = new String(serviceData, StandardCharsets.UTF_8);
             String mac = result.getDevice().getAddress();
 
-            // Extract discovery tokens and internet status flag
             String discoveryId = payload;
             boolean peerIsOnline = false;
             if (payload.contains("|")) {
                 String[] parts = payload.split("\\|");
                 discoveryId = parts[0];
-                peerIsOnline = "1".equals(parts[1]);
+                peerIsOnline = parts.length > 1 && "1".equals(parts[1]);
             }
 
             JSObject peer = new JSObject();
             peer.put("discoveryId", discoveryId);
-            peer.put("ip", mac); // Use MAC address as peer connection endpoint
+            peer.put("ip", mac);
             peer.put("isOnline", peerIsOnline);
 
             JSObject ret = new JSObject();
@@ -472,7 +491,7 @@ public class JamshNearbyPlugin extends Plugin {
     };
 
     // -----------------------------------------------------------------
-    // GATT SERVER (RECEIVING ROLE)
+    // GATT SERVER (RECEIVING & CHUNK REASSEMBLY ROLE)
     // -----------------------------------------------------------------
 
     @SuppressLint("MissingPermission")
@@ -496,7 +515,7 @@ public class JamshNearbyPlugin extends Plugin {
 
             BluetoothGattCharacteristic writeChar = new BluetoothGattCharacteristic(
                     CHARACTERISTIC_WRITE_UUID,
-                    BluetoothGattCharacteristic.PROPERTY_WRITE,
+                    BluetoothGattCharacteristic.PROPERTY_WRITE | BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE,
                     BluetoothGattCharacteristic.PERMISSION_WRITE
             );
 
@@ -540,71 +559,52 @@ public class JamshNearbyPlugin extends Plugin {
 
             if (characteristic.getUuid().equals(CHARACTERISTIC_WRITE_UUID) && value != null) {
                 try {
-                    String envelopeJson = new String(value, StandardCharsets.UTF_8);
-                    JSObject envelope = new JSObject(envelopeJson);
+                    byte[] fullPayload = null;
 
-                    String msgId = envelope.getString("id");
-                    double originLat = envelope.optDouble("origin_lat", 0.0);
-                    double originLng = envelope.optDouble("origin_lng", 0.0);
-                    double relayRadius = envelope.optDouble("relay_radius", 5000.0); // 5km default
-                    String roomId = envelope.getString("room_id");
-                    String recipientId = envelope.getString("recipient_id");
+                    // Inspect framing: chunked or unchunked
+                    if (value.length >= 2 && value[0] != 0x7B) { // Not JSON '{'
+                        int chunkIndex = value[0] & 0xFF;
+                        int totalChunks = value[1] & 0xFF;
+                        byte[] chunkData = new byte[value.length - 2];
+                        System.arraycopy(value, 2, chunkData, 0, chunkData.length);
 
-                    // 1. Seen Packets & Duplicate Suppression
-                    if (dbHelper.isMessageDuplicate(msgId)) {
-                        Log.d(TAG, "[BLE Relay] Duplicate packet " + msgId + " ignored.");
-                        if (responseNeeded) {
-                            gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null);
+                        ChunkReassembly cr = incomingBuffers.computeIfAbsent(device.getAddress(), k -> {
+                            ChunkReassembly newCr = new ChunkReassembly();
+                            newCr.totalChunks = totalChunks;
+                            return newCr;
+                        });
+                        cr.chunks.put(chunkIndex, chunkData);
+
+                        if (cr.chunks.size() == cr.totalChunks) {
+                            int totalLen = 0;
+                            for (int i = 0; i < cr.totalChunks; i++) {
+                                byte[] c = cr.chunks.get(i);
+                                if (c != null) totalLen += c.length;
+                            }
+                            fullPayload = new byte[totalLen];
+                            int pos = 0;
+                            for (int i = 0; i < cr.totalChunks; i++) {
+                                byte[] c = cr.chunks.get(i);
+                                if (c != null) {
+                                    System.arraycopy(c, 0, fullPayload, pos, c.length);
+                                    pos += c.length;
+                                }
+                            }
+                            incomingBuffers.remove(device.getAddress());
                         }
-                        return;
-                    }
-                    dbHelper.markMessageSeen(msgId);
-
-                    // 2. Geofence Boundary Enforcement
-                    double dist = calculateDistance(lastKnownLatitude, lastKnownLongitude, originLat, originLng);
-                    if (dist > relayRadius) {
-                        Log.w(TAG, "[BLE Relay] Node outside geofence zone: " + dist + "m > " + relayRadius + "m limit. Discarding.");
-                        if (responseNeeded) {
-                            gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null);
-                        }
-                        return;
-                    }
-
-                    // 3. Target Routing Decisions
-                    SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
-                    String myUserId = prefs.getString("user_id", "");
-
-                    if (recipientId != null && recipientId.equals(myUserId)) {
-                        // Received at target destination
-                        JSObject ret = new JSObject();
-                        ret.put("connectionId", device.getAddress()); // Store MAC for virtual link tracking
-                        ret.put("envelope", envelope);
-                        notifyListeners("messageReceived", ret);
                     } else {
-                        // Not the recipient -> cache to local SQLite queue for carry-forward mesh routing
-                        dbHelper.insertRelayMessage(msgId, roomId, recipientId, envelopeJson, originLat, originLng, relayRadius);
-                        Log.d(TAG, "[BLE Relay] Packet " + msgId + " cached in local mesh queue.");
-
-                        // Offline -> Online Relay: trigger upload immediately if active internet is available
-                        if (isNetworkAvailable()) {
-                            triggerRelayUpload(msgId, roomId, recipientId, envelope);
-                        }
+                        fullPayload = value;
                     }
 
-                    // 4. Cache ACK response for read request
-                    JSObject ack = new JSObject();
-                    ack.put("protocol_version", "1.0");
-                    ack.put("message_id", msgId);
-                    ack.put("ack_status", "SUCCESS");
-                    ack.put("signature", "sig_mesh_verified");
-
-                    pendingAcks.put(device.getAddress(), ack.toString());
+                    if (fullPayload != null) {
+                        handleCompleteReceivedEnvelope(device, fullPayload);
+                    }
 
                     if (responseNeeded) {
                         gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_SUCCESS, offset, null);
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "[GATT Server] Characteristic write handling failed", e);
+                    Log.e(TAG, "[GATT Server] Characteristic write error", e);
                     if (responseNeeded) {
                         gattServer.sendResponse(device, requestId, BluetoothGatt.GATT_FAILURE, offset, null);
                     }
@@ -626,6 +626,77 @@ public class JamshNearbyPlugin extends Plugin {
         }
     };
 
+    private void handleCompleteReceivedEnvelope(BluetoothDevice device, byte[] fullPayload) {
+        try {
+            String envelopeJson = new String(fullPayload, StandardCharsets.UTF_8);
+            JSObject envelope = new JSObject(envelopeJson);
+
+            String msgId = envelope.getString("id");
+            double originLat = envelope.optDouble("origin_lat", 0.0);
+            double originLng = envelope.optDouble("origin_lng", 0.0);
+            double relayRadius = envelope.optDouble("relay_radius", 5000.0);
+            String roomId = envelope.getString("room_id");
+            String recipientId = envelope.getString("recipient_id");
+            int hopCount = envelope.optInt("hop_count", 0);
+            int maxHops = envelope.optInt("max_hops", 8);
+
+            if (hopCount > maxHops) return;
+
+            // 1. Seen packet duplicate suppression
+            if (dbHelper.isMessageDuplicate(msgId)) {
+                Log.d(TAG, "[BLE Relay] Duplicate packet " + msgId + " ignored.");
+                return;
+            }
+            dbHelper.markMessageSeen(msgId);
+
+            // 2. Geofence radius validation
+            double dist = calculateDistance(lastKnownLatitude, lastKnownLongitude, originLat, originLng);
+            if (dist > relayRadius) {
+                Log.w(TAG, "[BLE Relay] Node outside geofence boundary: " + dist + "m > " + relayRadius + "m.");
+                return;
+            }
+
+            // 3. Target Delivery vs Multi-hop Relay Routing
+            SharedPreferences prefs = getContext().getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE);
+            String myUserId = prefs.getString("user_id", "");
+
+            if (recipientId != null && (recipientId.equals(myUserId) || recipientId.equals("group"))) {
+                JSObject ret = new JSObject();
+                ret.put("connectionId", device.getAddress());
+                ret.put("envelope", envelope);
+                notifyListeners("messageReceived", ret);
+            } else {
+                // Multi-hop mesh relay: store locally in ble_mesh_queue
+                envelope.put("hop_count", hopCount + 1);
+                envelopeJson = envelope.toString();
+                dbHelper.insertRelayMessage(msgId, roomId, recipientId, envelopeJson, originLat, originLng, relayRadius);
+                Log.d(TAG, "[BLE Relay] Multi-hop packet " + msgId + " cached in local mesh queue for forwarding.");
+
+                // Notify JS layer of relay packet arrival
+                JSObject relayEvt = new JSObject();
+                relayEvt.put("messageId", msgId);
+                relayEvt.put("envelope", envelope);
+                notifyListeners("relayMessageReceived", relayEvt);
+
+                // If online, immediately upload to Supabase cloud
+                if (isNetworkAvailable()) {
+                    triggerRelayUpload(msgId, roomId, recipientId, envelope);
+                }
+            }
+
+            // Preliminary fallback ACK
+            JSObject ack = new JSObject();
+            ack.put("protocol_version", "1.0");
+            ack.put("message_id", msgId);
+            ack.put("ack_status", "SUCCESS");
+            ack.put("authenticated", false);
+            pendingAcks.put(device.getAddress(), ack.toString());
+
+        } catch (Exception e) {
+            Log.e(TAG, "[GATT Server] Failed to process complete envelope", e);
+        }
+    }
+
     private void triggerRelayUpload(String msgId, String roomId, String recipientId, JSObject envelope) {
         JSObject ret = new JSObject();
         ret.put("messageId", msgId);
@@ -637,12 +708,16 @@ public class JamshNearbyPlugin extends Plugin {
 
     @PluginMethod
     public void respondToEnvelope(PluginCall call) {
-        // Kept as a clean interface stub because direct BLE responses are handled natively via write ACKs
+        String connectionId = call.getString("connectionId");
+        JSObject ack = call.getObject("ack");
+        if (connectionId != null && ack != null) {
+            pendingAcks.put(connectionId, ack.toString());
+        }
         call.resolve();
     }
 
     // -----------------------------------------------------------------
-    // GATT CLIENT (SENDING ROLE)
+    // GATT CLIENT (CHUNKED SEND ENVELOPE)
     // -----------------------------------------------------------------
 
     @SuppressLint("MissingPermission")
@@ -667,6 +742,28 @@ public class JamshNearbyPlugin extends Plugin {
             return;
         }
 
+        // Slice envelope into chunks <= 380 bytes
+        byte[] rawBytes = envelope.toString().getBytes(StandardCharsets.UTF_8);
+        List<byte[]> chunks = new ArrayList<>();
+        int chunkSize = 380;
+        int totalChunks = (int) Math.ceil((double) rawBytes.length / chunkSize);
+
+        for (int i = 0; i < totalChunks; i++) {
+            int start = i * chunkSize;
+            int len = Math.min(rawBytes.length - start, chunkSize);
+            byte[] chunk = new byte[2 + len];
+            chunk[0] = (byte) i;
+            chunk[1] = (byte) totalChunks;
+            System.arraycopy(rawBytes, start, chunk, 2, len);
+            chunks.add(chunk);
+        }
+
+        ClientSendSession session = new ClientSendSession();
+        session.call = call;
+        session.chunks = chunks;
+        session.currentIndex = 0;
+        activeSendSessions.put(ip, session);
+
         new Thread(() -> {
             device.connectGatt(getContext(), false, new BluetoothGattCallback() {
                 private boolean resolved = false;
@@ -675,9 +772,10 @@ public class JamshNearbyPlugin extends Plugin {
                 public void onConnectionStateChange(BluetoothGatt gatt, int status, int newState) {
                     super.onConnectionStateChange(gatt, status, newState);
                     if (newState == BluetoothProfile.STATE_CONNECTED) {
-                        gatt.requestMtu(512); // Request larger MTU to fit envelope payload comfortably
+                        gatt.requestMtu(512);
                     } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
                         gatt.close();
+                        activeSendSessions.remove(ip);
                         if (!resolved) {
                             resolved = true;
                             getActivity().runOnUiThread(() -> call.reject("Disconnection during envelope routing"));
@@ -688,15 +786,7 @@ public class JamshNearbyPlugin extends Plugin {
                 @Override
                 public void onMtuChanged(BluetoothGatt gatt, int mtu, int status) {
                     super.onMtuChanged(gatt, mtu, status);
-                    if (status == BluetoothGatt.GATT_SUCCESS) {
-                        gatt.discoverServices();
-                    } else {
-                        gatt.close();
-                        if (!resolved) {
-                            resolved = true;
-                            getActivity().runOnUiThread(() -> call.reject("Failed to configure connection MTU"));
-                        }
-                    }
+                    gatt.discoverServices();
                 }
 
                 @Override
@@ -707,14 +797,16 @@ public class JamshNearbyPlugin extends Plugin {
                         if (service != null) {
                             BluetoothGattCharacteristic charac = service.getCharacteristic(CHARACTERISTIC_WRITE_UUID);
                             if (charac != null) {
-                                byte[] payload = envelope.toString().getBytes(StandardCharsets.UTF_8);
-                                charac.setValue(payload);
+                                session.writeChar = charac;
+                                byte[] firstChunk = session.chunks.get(0);
+                                charac.setValue(firstChunk);
                                 gatt.writeCharacteristic(charac);
                                 return;
                             }
                         }
                     }
                     gatt.close();
+                    activeSendSessions.remove(ip);
                     if (!resolved) {
                         resolved = true;
                         getActivity().runOnUiThread(() -> call.reject("JamSh custom services not found on peer"));
@@ -725,20 +817,29 @@ public class JamshNearbyPlugin extends Plugin {
                 public void onCharacteristicWrite(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                     super.onCharacteristicWrite(gatt, characteristic, status);
                     if (status == BluetoothGatt.GATT_SUCCESS) {
-                        // After write completes, read ACK back
-                        BluetoothGattService service = gatt.getService(SERVICE_UUID);
-                        if (service != null) {
-                            BluetoothGattCharacteristic readChar = service.getCharacteristic(CHARACTERISTIC_READ_UUID);
-                            if (readChar != null) {
-                                gatt.readCharacteristic(readChar);
-                                return;
+                        session.currentIndex++;
+                        if (session.currentIndex < session.chunks.size()) {
+                            byte[] nextChunk = session.chunks.get(session.currentIndex);
+                            characteristic.setValue(nextChunk);
+                            gatt.writeCharacteristic(characteristic);
+                            return;
+                        } else {
+                            // All chunks written! Now read ACK back
+                            BluetoothGattService service = gatt.getService(SERVICE_UUID);
+                            if (service != null) {
+                                BluetoothGattCharacteristic readChar = service.getCharacteristic(CHARACTERISTIC_READ_UUID);
+                                if (readChar != null) {
+                                    gatt.readCharacteristic(readChar);
+                                    return;
+                                }
                             }
                         }
                     }
                     gatt.close();
+                    activeSendSessions.remove(ip);
                     if (!resolved) {
                         resolved = true;
-                        getActivity().runOnUiThread(() -> call.reject("GATT Write operation failed"));
+                        getActivity().runOnUiThread(() -> call.reject("GATT Write chunking failed"));
                     }
                 }
 
@@ -746,6 +847,7 @@ public class JamshNearbyPlugin extends Plugin {
                 public void onCharacteristicRead(BluetoothGatt gatt, BluetoothGattCharacteristic characteristic, int status) {
                     super.onCharacteristicRead(gatt, characteristic, status);
                     gatt.close();
+                    activeSendSessions.remove(ip);
                     if (resolved) return;
                     resolved = true;
 
@@ -767,6 +869,23 @@ public class JamshNearbyPlugin extends Plugin {
                 }
             });
         }).start();
+    }
+
+    @PluginMethod
+    public void forwardPendingRelays(PluginCall call) {
+        int count = 0;
+        try {
+            List<JSObject> pending = dbHelper.getPendingRelayList();
+            for (JSObject item : pending) {
+                notifyListeners("forwardRelayToPeers", item);
+                count++;
+            }
+            JSObject ret = new JSObject();
+            ret.put("forwardedCount", count);
+            call.resolve(ret);
+        } catch (Exception e) {
+            call.reject("Failed to forward pending relays: " + e.getMessage());
+        }
     }
 
     // -----------------------------------------------------------------
@@ -893,7 +1012,7 @@ public class JamshNearbyPlugin extends Plugin {
 
     private static class QueueDbHelper extends SQLiteOpenHelper {
         private static final String DATABASE_NAME = "jamsh_offline_queue.db";
-        private static final int DATABASE_VERSION = 2; // Upgraded schema version
+        private static final int DATABASE_VERSION = 2;
 
         private static final String TABLE_QUEUE = "message_queue";
         private static final String TABLE_RELAY_QUEUE = "ble_mesh_queue";
@@ -904,7 +1023,6 @@ public class JamshNearbyPlugin extends Plugin {
         private static final String COL_RECIPIENT_ID = "recipient_id";
         private static final String COL_ENVELOPE = "envelope_json";
 
-        // Geofence fields
         private static final String COL_LAT = "origin_lat";
         private static final String COL_LNG = "origin_lng";
         private static final String COL_RADIUS = "relay_radius";
@@ -1014,7 +1132,6 @@ public class JamshNearbyPlugin extends Plugin {
             }
             cursor.close();
 
-            // Append messages in the relay mesh cache as well
             Cursor cursorRelay = db.rawQuery("SELECT * FROM " + TABLE_RELAY_QUEUE, null);
             if (cursorRelay.moveToFirst()) {
                 do {
@@ -1030,6 +1147,28 @@ public class JamshNearbyPlugin extends Plugin {
             cursorRelay.close();
 
             return arr;
+        }
+
+        public List<JSObject> getPendingRelayList() {
+            List<JSObject> list = new ArrayList<>();
+            SQLiteDatabase db = this.getReadableDatabase();
+            Cursor cursor = db.rawQuery("SELECT message_id, room_id, recipient_id, envelope_json FROM " + TABLE_RELAY_QUEUE, null);
+            if (cursor.moveToFirst()) {
+                do {
+                    JSObject obj = new JSObject();
+                    obj.put("messageId", cursor.getString(0));
+                    obj.put("roomId", cursor.getString(1));
+                    obj.put("recipientId", cursor.getString(2));
+                    try {
+                        obj.put("envelope", new JSObject(cursor.getString(3)));
+                    } catch (Exception e) {
+                        obj.put("envelopeJson", cursor.getString(3));
+                    }
+                    list.add(obj);
+                } while (cursor.moveToNext());
+            }
+            cursor.close();
+            return list;
         }
     }
 }

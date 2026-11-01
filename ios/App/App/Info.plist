@@ -30,6 +30,11 @@
 	<string>JamSh uses your location to discover nearby chat feeds and enforce geofencing boundary signals.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>JamSh uses your location to discover nearby chat feeds and enforce geofencing boundary signals even in the background.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>bluetooth-central</string>
+		<string>bluetooth-peripheral</string>
+	</array>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_jamsh-nearby._tcp</string>

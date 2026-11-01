@@ -25,7 +25,11 @@ import {
   Phone,
   Video,
   Info,
+  Zap,
+  Share2,
+  Radio,
 } from 'lucide-react';
+import { OfflinePairingModal } from './OfflinePairingModal';
 import { ChatRoom, Message } from '@jamsh/types';
 import {
   MessagingService,
@@ -56,6 +60,7 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
   const [hasMoreOlder, setHasMoreOlder] = useState(true);
   const [isPeerTyping, setIsPeerTyping] = useState(false);
   const [showNewMessagesPill, setShowNewMessagesPill] = useState(false);
+  const [showPairingModal, setShowPairingModal] = useState(false);
   const [roomStatus, setRoomStatus] = useState<'pending' | 'accepted' | 'archived' | 'blocked'>(
     room.status || 'accepted'
   );
@@ -297,6 +302,33 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
     }
   };
 
+  // Retry sending a failed message
+  const handleRetryMessage = async (failedMsg: Message) => {
+    setMessages((prev) =>
+      prev.map((m) => (m.id === failedMsg.id ? { ...m, status: 'sending' } : m))
+    );
+    try {
+      const recipientId = room.type === 'group' ? '' : peer?.id || '';
+      const realMsg = await sendEncryptedMessage(
+        room.id,
+        recipientId,
+        failedMsg.decrypted || failedMsg.content
+      );
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === failedMsg.id
+            ? { ...realMsg, decrypted: realMsg.decrypted || failedMsg.content, status: 'sent' }
+            : m
+        )
+      );
+    } catch (e) {
+      console.error('[ChatWindow] Retry failed:', e);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === failedMsg.id ? { ...m, status: 'failed' } : m))
+      );
+    }
+  };
+
   // Accept Message Request Action
   const handleAcceptRequest = async () => {
     try {
@@ -306,6 +338,47 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
     } catch (e) {
       console.error('[ChatWindow] Error accepting message request:', e);
     }
+  };
+
+  // Render Transport & Delivery Status Indicator (BLE Direct, Mesh Relay, Queued, Synced)
+  const renderTransportBadge = (msg: Message) => {
+    if (msg.local_status === 'queued' || (msg as any).status === 'queued') {
+      return (
+        <View style={styles.transportBadge}>
+          <Clock size={10} color="#FFA500" />
+          <Text style={[styles.transportBadgeText, { color: '#FFA500' }]}>🕒 Queued</Text>
+        </View>
+      );
+    }
+    if (msg.transport === 'ble_direct' || msg.local_status === 'delivered_nearby') {
+      return (
+        <View style={styles.transportBadge}>
+          <Zap size={10} color="#00E5FF" />
+          <Text style={[styles.transportBadgeText, { color: '#00E5FF' }]}>⚡ Direct Nearby</Text>
+          <Check size={11} color="#00E5FF" />
+        </View>
+      );
+    }
+    if (msg.transport === 'ble_mesh' || (msg.hop_count && msg.hop_count > 1)) {
+      const hops = msg.hop_count || 2;
+      return (
+        <View style={styles.transportBadge}>
+          <Share2 size={10} color="#B388FF" />
+          <Text style={[styles.transportBadgeText, { color: '#B388FF' }]}>
+            🔄 Mesh ({hops} {hops === 1 ? 'hop' : 'hops'})
+          </Text>
+        </View>
+      );
+    }
+    if (msg.local_status === 'synced' || msg.local_status === 'synced_online') {
+      return (
+        <View style={styles.transportBadge}>
+          <CheckCheck size={11} color="#4CAF50" />
+          <Text style={[styles.transportBadgeText, { color: '#4CAF50' }]}>✓✓ Synced Online</Text>
+        </View>
+      );
+    }
+    return null;
   };
 
   // Render Status Badge for Sent Messages (○, ✓, ✓✓, Seen)
@@ -318,7 +391,15 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
       return <Clock size={12} color="#8E8E93" />;
     }
     if (status === 'failed') {
-      return <AlertCircle size={12} color="#FF3B30" />;
+      return (
+        <TouchableOpacity
+          onPress={() => handleRetryMessage(msg)}
+          style={{ flexDirection: 'row', alignItems: 'center', gap: 3 }}
+        >
+          <AlertCircle size={12} color="#FF3B30" />
+          <Text style={{ color: '#FF3B30', fontSize: 10, fontWeight: '700' }}>Retry</Text>
+        </TouchableOpacity>
+      );
     }
     if (status === 'seen') {
       return <Text style={styles.seenBadgeText}>Seen</Text>;
@@ -330,7 +411,7 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={styles.container} testID="chat-window">
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
@@ -366,6 +447,13 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
 
         {/* Action icons */}
         <View style={styles.headerRight}>
+          <TouchableOpacity
+            style={[styles.iconBtn, { backgroundColor: 'rgba(245, 154, 24, 0.15)', borderRadius: 16 }]}
+            onPress={() => setShowPairingModal(true)}
+            accessibilityLabel="Offline Mesh Pairing"
+          >
+            <Radio size={18} color="#F59A18" />
+          </TouchableOpacity>
           <TouchableOpacity style={styles.iconBtn}>
             <Phone size={18} color="#FFFFFF" />
           </TouchableOpacity>
@@ -424,6 +512,34 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
               </View>
             )}
 
+            {/* Empty Conversation Hero */}
+            {messages.length === 0 && !isLoadingMessages && (
+              <View style={styles.emptyConversationContainer}>
+                <View style={styles.emptyAvatarWrapper}>
+                  {avatarUrl ? (
+                    <img src={avatarUrl} alt={roomTitle} style={styles.emptyAvatarImg as any} />
+                  ) : (
+                    <View style={styles.emptyAvatarFallback}>
+                      <Text style={styles.emptyAvatarText}>
+                        {roomTitle.substring(0, 1).toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={styles.emptyTitle}>{roomTitle}</Text>
+                {peer?.username && (
+                  <Text style={styles.emptySubtitle}>@{peer.username} · JamSh</Text>
+                )}
+                <View style={styles.emptyE2EBadge}>
+                  <ShieldCheck size={14} color="#F59A18" />
+                  <Text style={styles.emptyE2EText}>End-to-end encrypted</Text>
+                </View>
+                <Text style={styles.emptyPrompt}>
+                  Messages and calls are secured with end-to-end encryption. No one outside of this chat can read or listen to them.
+                </Text>
+              </View>
+            )}
+
             {messages.map((msg, index) => {
               const isMine = msg.sender_id === currentUser?.id;
               return (
@@ -450,6 +566,7 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
                       <Text style={styles.msgTime}>
                         {MessagingService.formatTimeAgo(msg.created_at)}
                       </Text>
+                      {renderTransportBadge(msg)}
                       {renderStatusBadge(msg)}
                     </View>
                   </View>
@@ -494,11 +611,18 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
           </TouchableOpacity>
 
           <TextInput
+            testID="chat-message-input"
             style={styles.textInput}
             placeholder="Message..."
             placeholderTextColor="#8E8E93"
             value={inputText}
             onChangeText={handleInputChange}
+            onKeyPress={(e: any) => {
+              if (e.nativeEvent?.key === 'Enter' && !e.nativeEvent?.shiftKey) {
+                e.preventDefault?.();
+                handleSendMessage();
+              }
+            }}
             multiline
           />
 
@@ -523,6 +647,10 @@ export const InstagramChatWindow: React.FC<InstagramChatWindowProps> = ({
           <Send size={18} color={inputText.trim() ? '#000000' : '#8E8E93'} />
         </TouchableOpacity>
       </View>
+      <OfflinePairingModal
+        visible={showPairingModal}
+        onClose={() => setShowPairingModal(false)}
+      />
     </View>
   );
 };
@@ -785,5 +913,88 @@ const styles = StyleSheet.create({
   },
   sendBtnDisabled: {
     backgroundColor: '#161616',
+  },
+  emptyConversationContainer: {
+    alignItems: 'center',
+    paddingVertical: 36,
+    paddingHorizontal: 24,
+  },
+  emptyAvatarWrapper: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    marginBottom: 14,
+    overflow: 'hidden',
+  },
+  emptyAvatarImg: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    objectFit: 'cover',
+  },
+  emptyAvatarFallback: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#262626',
+    borderWidth: 2,
+    borderColor: '#F59A18',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  emptyAvatarText: {
+    color: '#F59A18',
+    fontSize: 28,
+    fontWeight: '700',
+  },
+  emptyTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 4,
+    textAlign: 'center',
+  },
+  emptySubtitle: {
+    color: '#8E8E93',
+    fontSize: 13,
+    marginBottom: 12,
+  },
+  emptyE2EBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: 'rgba(245, 154, 24, 0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 154, 24, 0.3)',
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    marginBottom: 12,
+  },
+  emptyE2EText: {
+    color: '#F59A18',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  emptyPrompt: {
+    color: '#636366',
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 280,
+    lineHeight: 18,
+  },
+  transportBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginHorizontal: 3,
+  },
+  transportBadgeText: {
+    fontSize: 9,
+    fontWeight: '700',
   },
 });

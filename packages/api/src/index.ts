@@ -1,12 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 import { create } from 'zustand';
 import { UserProfile, Post, Comment, Story, ChatRoom, Message, LiveStream, LiveComment, DeviceKey, Notification, NotificationCounts, NotificationPreferences } from '@jamsh/types';
-import { generateKeyPair, generateDeterministicKeyPair, encryptPairwise, decryptPairwise, deriveSharedSecret, importRawAESKey, generateGroupKeyHex, encryptWithKey, decryptWithKey, bytesToBase64 } from '@jamsh/encryption';
+import { generateKeyPair, encryptPairwise, decryptPairwise, deriveSharedSecret, importRawAESKey, generateGroupKeyHex, encryptWithKey, decryptWithKey, computeFingerprint, generateAckSignature, verifyAckSignature } from '@jamsh/encryption';
 
 
 import { registerPlugin, Capacitor } from '@capacitor/core';
-import { MessagingService } from './services/MessagingService';
-export * from './services/MessagingService';
+import { MessagingService } from './services/MessagingService.js';
+export * from './services/MessagingService.js';
 
 // Register Capacitor Custom Plugin
 export const JamshNearby = registerPlugin<any>('JamshNearby');
@@ -102,6 +102,7 @@ export const nearbyPeers = new Map<string, { ip: string; lastSeen: number; isOnl
 const getSupabaseConfig = () => {
   let url = 'https://czxoschackeetzspupxh.supabase.co';
   let key = 'sb_publishable__B8FxfHeDWfs65PqwfBhkQ_NA-r4HDH';
+  const metaEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
 
   if (typeof process !== 'undefined' && process.env) {
     if (process.env.EXPO_PUBLIC_SUPABASE_URL) url = process.env.EXPO_PUBLIC_SUPABASE_URL;
@@ -113,18 +114,8 @@ const getSupabaseConfig = () => {
     else if (process.env.VITE_SUPABASE_ANON_KEY) key = process.env.VITE_SUPABASE_ANON_KEY;
   }
 
-  // Safe dynamic check for import.meta to avoid Node.js CommonJS parser crash
-  try {
-    const metaEnv = Function('return import.meta.env')();
-    if (metaEnv) {
-      if (metaEnv.VITE_SUPABASE_URL) {
-        url = metaEnv.VITE_SUPABASE_URL;
-      }
-      if (metaEnv.VITE_SUPABASE_ANON_KEY) {
-        key = metaEnv.VITE_SUPABASE_ANON_KEY;
-      }
-    }
-  } catch (e) {}
+  if (metaEnv?.VITE_SUPABASE_URL) url = metaEnv.VITE_SUPABASE_URL;
+  if (metaEnv?.VITE_SUPABASE_ANON_KEY) key = metaEnv.VITE_SUPABASE_ANON_KEY;
 
   return { url, key };
 };
@@ -137,9 +128,11 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 interface AuthState {
   user: any | null;
   profile: UserProfile | null;
+  authSetupRequired: boolean;
   deviceKeyPair: { privateKey: string; publicKey: string } | null;
   groupKeys: Record<string, string>; // room_id -> decrypted group key (hex)
   setSession: (user: any, profile: UserProfile | null) => void;
+  setAuthSetupRequired: (required: boolean) => void;
   setDeviceKeyPair: (keys: { privateKey: string; publicKey: string } | null) => void;
   addGroupKey: (roomId: string, keyHex: string) => void;
   logout: () => Promise<void>;
@@ -148,9 +141,11 @@ interface AuthState {
 export const useAuthStore = create<AuthState>((set, get) => ({
   user: null,
   profile: null,
+  authSetupRequired: false,
   deviceKeyPair: null,
   groupKeys: {},
   setSession: (user, profile) => set((state) => ({ user, profile, deviceKeyPair: state.user?.id === user?.id ? state.deviceKeyPair : null })),
+  setAuthSetupRequired: (authSetupRequired) => set({ authSetupRequired }),
   setDeviceKeyPair: (deviceKeyPair) => set({ deviceKeyPair }),
   addGroupKey: (roomId, keyHex) => set((state) => ({ groupKeys: { ...state.groupKeys, [roomId]: keyHex } })),
   logout: async () => {
@@ -159,7 +154,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     } catch (e) {
       console.log('Supabase signout skipped in local mode');
     }
-    set({ user: null, profile: null, deviceKeyPair: null, groupKeys: {} });
+    set({ user: null, profile: null, authSetupRequired: false, deviceKeyPair: null, groupKeys: {} });
   },
 }));
 
@@ -169,14 +164,8 @@ const isMockMode = () => {
   if (typeof process !== 'undefined' && process.env && process.env.VITE_USE_MOCK_API === 'true') {
     return true;
   }
-  // Safe dynamic check for import.meta to avoid Node.js CommonJS parser crash
-  try {
-    const metaEnv = Function('return import.meta.env')();
-    if (metaEnv && metaEnv.VITE_USE_MOCK_API === 'true') {
-      return true;
-    }
-  } catch (e) {}
-  return false;
+  const metaEnv = (import.meta as ImportMeta & { env?: Record<string, string | undefined> }).env;
+  return metaEnv?.VITE_USE_MOCK_API === 'true';
 };
 
 
@@ -431,19 +420,60 @@ export const mockDb = new LocalMockDatabase();
 export async function signInUser(contact: string, password: string): Promise<{ user: any; profile: UserProfile }> {
   if (isMockMode()) {
     const users = mockDb.getUsers();
-    const foundUser = users.find((u: any) => u.email === contact.trim() && u.password === password);
+    const normalizedContact = contact.trim().toLowerCase();
+    const foundUser = users.find((u: any) =>
+      (u.email?.toLowerCase() === normalizedContact || u.username?.toLowerCase() === normalizedContact) &&
+      u.password === password
+    );
     if (!foundUser) throw new Error('Invalid login credentials');
 
     const profiles = mockDb.getProfiles();
-    const profile = profiles.find((p: any) => p.id === foundUser.id);
-    if (!profile) throw new Error('Profile not found');
+    let profile: UserProfile | undefined = profiles.find((p: any) => p.id === foundUser.id);
+    if (!profile) {
+      profile = {
+        id: foundUser.id,
+        username: foundUser.username || foundUser.email?.split('@')[0] || 'user',
+        display_name: foundUser.display_name || foundUser.username || 'User',
+        avatar_url: '',
+        cover_url: '',
+        bio: '',
+        website: '',
+        followers_count: 0,
+        following_count: 0,
+        is_private: false,
+        is_verified: false,
+        birthday: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any;
+      mockDb.setProfiles([...profiles, profile]);
+    }
 
-    useAuthStore.getState().setSession(foundUser, profile);
+    useAuthStore.getState().setSession(foundUser, profile as UserProfile);
     await initializeE2EKeys(foundUser.id, 'web-device-1');
-    return { user: foundUser, profile };
+    return { user: foundUser, profile: profile as UserProfile };
   }
 
   const isEmail = contact.includes('@');
+  if (!isEmail) {
+    const { data, error } = await supabase.functions.invoke('auth-username-login', {
+      body: { username: contact.trim(), password },
+    });
+    if (error || !data?.access_token || !data?.refresh_token || !data.user) {
+      throw new Error('Invalid username or password.');
+    }
+    const { error: sessionError } = await supabase.auth.setSession({
+      access_token: data.access_token,
+      refresh_token: data.refresh_token,
+    });
+    if (sessionError) throw sessionError;
+    const profile = await fetchProfile(data.user.id);
+    if (!profile) throw new Error('Your account profile could not be loaded.');
+    useAuthStore.getState().setSession(data.user, profile);
+    useAuthStore.getState().setAuthSetupRequired(false);
+    await initializeE2EKeys(data.user.id, 'web-device-1');
+    return { user: data.user, profile };
+  }
   const signInPayload: any = {
     password,
   };
@@ -454,15 +484,47 @@ export async function signInUser(contact: string, password: string): Promise<{ u
   }
 
   const { data, error } = await supabase.auth.signInWithPassword(signInPayload);
-  if (error) throw error;
+  if (error) {
+    if (error.message?.toLowerCase().includes('email not confirmed')) {
+      throw new Error('Email not confirmed. Please check your inbox or confirm your email to log in.');
+    }
+    if (error.message?.toLowerCase().includes('invalid login credentials')) {
+      throw new Error('Invalid email or password.');
+    }
+    throw error;
+  }
   if (!data.user) throw new Error('Authentication failed');
 
-  const profile = await fetchProfile(data.user.id);
-  if (!profile) throw new Error('Profile not found');
+  let profile = await fetchProfile(data.user.id);
+  const finalProfile: UserProfile = profile || ({
+    id: data.user.id,
+    email: data.user.email || null,
+    username: (data.user.user_metadata?.username || data.user.email?.split('@')[0] || `user_${data.user.id.slice(0, 6)}`) as string,
+    display_name: (data.user.user_metadata?.display_name || data.user.user_metadata?.full_name || data.user.email?.split('@')[0] || 'JamSh User') as string,
+    avatar_url: (data.user.user_metadata?.avatar_url || '') as string,
+    cover_url: '',
+    bio: '',
+    website: '',
+    followers_count: 0,
+    following_count: 0,
+    is_private: false,
+    is_verified: false,
+    birthday: (data.user.user_metadata?.birthday || null) as any,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as any);
 
-  useAuthStore.getState().setSession(data.user, profile);
+  if (!profile) {
+    try {
+      await supabase.from('profiles').upsert(finalProfile as any);
+      cacheProfile(finalProfile);
+    } catch (_) {}
+  }
+
+  useAuthStore.getState().setSession(data.user, finalProfile);
+  useAuthStore.getState().setAuthSetupRequired(false);
   await initializeE2EKeys(data.user.id, 'web-device-1');
-  return { user: data.user, profile };
+  return { user: data.user, profile: finalProfile };
 }
 
 export async function signUpUser(
@@ -475,7 +537,10 @@ export async function signUpUser(
   if (isMockMode()) {
     const users = mockDb.getUsers();
     if (users.some((u: any) => u.email === contact.trim())) {
-      throw new Error('User already exists');
+      throw new Error('An account with this email already exists. Please log in.');
+    }
+    if (users.some((u: any) => u.username?.toLowerCase() === username.trim().toLowerCase())) {
+      throw new Error('That username is already taken.');
     }
     const newUserId = `user_${Date.now()}`;
     const newUser = { id: newUserId, email: contact.trim(), username, password };
@@ -484,8 +549,9 @@ export async function signUpUser(
     const profiles = mockDb.getProfiles();
     const newProfile: UserProfile = {
       id: newUserId,
-      username,
-      display_name: displayName,
+      email: contact.trim().toLowerCase(),
+      username: username.trim(),
+      display_name: displayName.trim(),
       avatar_url: '',
       cover_url: '',
       bio: '',
@@ -510,8 +576,8 @@ export async function signUpUser(
     password,
     options: {
       data: {
-        username,
-        display_name: displayName,
+        username: username.trim(),
+        display_name: displayName.trim(),
         birthday,
       }
     }
@@ -524,24 +590,63 @@ export async function signUpUser(
   }
 
   const { data, error } = await supabase.auth.signUp(signUpPayload);
-  if (error) throw error;
+  if (error) {
+    if (error.message?.toLowerCase().includes('username already exists') || error.code === '23505') {
+      throw new Error('That username is already taken.');
+    }
+    if (error.message?.toLowerCase().includes('user already registered') || error.message?.toLowerCase().includes('already registered')) {
+      throw new Error('An account with this email already exists. Please log in.');
+    }
+    throw error;
+  }
   if (!data.user) throw new Error('Registration failed');
 
-  // Wait a short time for the database trigger to create the profile, then fetch it
-  let profile = null;
-  for (let i = 0; i < 5; i++) {
+  // Supabase returns an empty identities list if user already exists (enumeration prevention)
+  if (!data.session && data.user.identities && data.user.identities.length === 0) {
+    throw new Error('An account with this email already exists. Please log in.');
+  }
+
+  // Poll for database profile trigger, fallback if delayed
+  let profile: UserProfile | null = null;
+  for (let i = 0; i < 3; i++) {
     profile = await fetchProfile(data.user.id);
     if (profile) break;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await new Promise((resolve) => setTimeout(resolve, 350));
   }
+
+  const finalProfile: UserProfile = profile || ({
+    id: data.user.id,
+    email: data.user.email || contact.trim().toLowerCase(),
+    username: username.trim(),
+    display_name: displayName.trim(),
+    avatar_url: '',
+    cover_url: '',
+    bio: '',
+    website: '',
+    followers_count: 0,
+    following_count: 0,
+    is_private: false,
+    is_verified: false,
+    birthday: birthday ? new Date(birthday).toISOString() : null,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  } as any);
 
   if (!profile) {
-    throw new Error('Profile setup failed. Please try logging in.');
+    try {
+      await supabase.from('profiles').upsert(finalProfile as any);
+      cacheProfile(finalProfile);
+    } catch (_) {}
   }
 
-  useAuthStore.getState().setSession(data.user, profile);
+  useAuthStore.getState().setSession(data.user, finalProfile);
+  useAuthStore.getState().setAuthSetupRequired(false);
   await initializeE2EKeys(data.user.id, 'web-device-1');
-  return { user: data.user, profile };
+  return { user: data.user, profile: finalProfile };
+}
+
+export async function signOutUser(): Promise<void> {
+  await useAuthStore.getState().logout();
 }
 
 export async function fetchProfile(userId: string): Promise<UserProfile | null> {
@@ -551,12 +656,96 @@ export async function fetchProfile(userId: string): Promise<UserProfile | null> 
     if (profile) cacheProfile(profile);
     return profile || null;
   }
+
   const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
   if (error || !data) return null;
   
   // Cache profile metadata locally
   cacheProfile(data as UserProfile);
   
+  return data as UserProfile;
+}
+
+export async function fetchProfileByEmail(email: string): Promise<UserProfile | null> {
+  if (isMockMode()) {
+    return mockDb.getProfiles().find((profile: any) =>
+      profile.email?.toLowerCase() === email.trim().toLowerCase()
+    ) || null;
+  }
+  const { data, error } = await supabase
+    .from('profiles')
+    .select('*')
+    .eq('email', email.trim().toLowerCase())
+    .maybeSingle();
+  if (error || !data) return null;
+  return data as UserProfile;
+}
+
+export async function completeGoogleProfile(
+  username: string,
+  displayName: string,
+  birthday?: string,
+  password?: string
+): Promise<UserProfile> {
+  const store = useAuthStore.getState();
+  if (!store.user) throw new Error('Not authenticated');
+  const cleanUsername = username.trim();
+  if (!/^[a-zA-Z0-9_.]{3,30}$/.test(cleanUsername)) {
+    throw new Error('Username must be 3-30 characters and use only letters, numbers, underscores, or periods.');
+  }
+
+  if (isMockMode()) {
+    const profiles = mockDb.getProfiles();
+    if (profiles.some((p: any) => p.id !== store.user.id && p.username.toLowerCase() === cleanUsername.toLowerCase())) {
+      throw new Error('That username is already taken.');
+    }
+    const existing = profiles.find((p: any) => p.id === store.user.id);
+    const updated = {
+      ...(existing || {}),
+      id: store.user.id,
+      email: store.user.email,
+      username: cleanUsername,
+      display_name: displayName.trim() || existing?.display_name || cleanUsername,
+      birthday: birthday || existing?.birthday || null,
+      updated_at: new Date().toISOString(),
+    } as UserProfile;
+    mockDb.setProfiles([...profiles.filter((p: any) => p.id !== store.user.id), updated]);
+    if (password) {
+      const users = mockDb.getUsers();
+      mockDb.setUsers(users.map((user: any) => user.id === store.user.id ? { ...user, password } : user));
+    }
+    store.user.user_metadata = {
+      ...(store.user.user_metadata || {}),
+      google_profile_completed: true,
+      username: cleanUsername,
+    };
+    store.setSession(store.user, updated);
+    store.setAuthSetupRequired(false);
+    return updated;
+  }
+
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({
+      username: cleanUsername,
+      display_name: displayName.trim() || cleanUsername,
+      birthday: birthday || null,
+      email: store.user.email?.toLowerCase() || null,
+    })
+    .eq('id', store.user.id)
+    .select()
+    .single();
+  if (error) {
+    if (error.code === '23505') throw new Error('That username is already taken.');
+    throw error;
+  }
+  const { error: metadataError } = await supabase.auth.updateUser({
+    ...(password ? { password } : {}),
+    data: { google_profile_completed: true, username: cleanUsername },
+  });
+  if (metadataError) throw metadataError;
+  store.setSession(store.user, data as UserProfile);
+  store.setAuthSetupRequired(false);
   return data as UserProfile;
 }
 
@@ -644,37 +833,74 @@ export async function updateProfile(profileUpdates: Partial<UserProfile>): Promi
   return result as UserProfile;
 }
 
-export async function searchUsers(query: string): Promise<UserProfile[]> {
+export async function searchUsers(query: string, limit = 15, excludeSelf = false): Promise<UserProfile[]> {
+  const cleanQuery = (query || '').trim().replace(/^@/, '');
+  if (!cleanQuery) return [];
+
+  const currentUser = useAuthStore.getState().user;
+  const currentUserId = currentUser?.id;
+
+  const filterSelf = (list: any[]) => {
+    if (!excludeSelf || !currentUserId) return list;
+    return list.filter((p: any) => p.id !== currentUserId);
+  };
+
   const online = await checkIsOnline();
   if (!online) {
     const cached = getCachedProfiles();
-    const searchVal = query.toLowerCase();
-    return cached.filter(p => 
+    const searchVal = cleanQuery.toLowerCase();
+    const matched = cached.filter((p: any) => 
       (p.username && p.username.toLowerCase().includes(searchVal)) || 
       (p.display_name && p.display_name.toLowerCase().includes(searchVal))
     );
+    return filterSelf(matched);
   }
   if (isMockMode()) {
     const profiles = mockDb.getProfiles();
-    const searchVal = query.toLowerCase();
-    return profiles.filter(p => 
+    const searchVal = cleanQuery.toLowerCase();
+    const matched = profiles.filter((p: any) => 
       (p.username && p.username.toLowerCase().includes(searchVal)) || 
       (p.display_name && p.display_name.toLowerCase().includes(searchVal))
     );
+    return filterSelf(matched);
   }
-  const { data, error } = await supabase
-    .from('profiles')
-    .select('*')
-    .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-    .limit(10);
 
-  if (error || !data) return [];
-  
-  // Cache retrieved profiles locally for offline discovery
-  data.forEach((p: any) => cacheProfile(p as UserProfile));
-  
-  return data as UserProfile[];
+  try {
+    // 1. Try high-performance RPC function with ranking & functional lower indexes
+    const { data: rpcData, error: rpcError } = await supabase.rpc('search_profiles', {
+      p_query: cleanQuery,
+      p_limit: limit,
+      p_exclude_self: excludeSelf,
+    });
+
+    if (!rpcError && rpcData && Array.isArray(rpcData)) {
+      const filtered = filterSelf(rpcData);
+      filtered.forEach((p: any) => cacheProfile(p as UserProfile));
+      return filtered as UserProfile[];
+    }
+  } catch (rpcErr) {
+    console.warn('[searchUsers] RPC search failed, falling back to direct query:', rpcErr);
+  }
+
+  // 2. Direct fallback query
+  try {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('id, username, display_name, avatar_url, bio, is_verified, is_private, followers_count, following_count')
+      .or(`username.ilike.%${cleanQuery}%,display_name.ilike.%${cleanQuery}%`)
+      .limit(limit);
+
+    if (error || !data) return [];
+    
+    const filtered = filterSelf(data as UserProfile[]);
+    filtered.forEach((p: any) => cacheProfile(p as UserProfile));
+    return filtered;
+  } catch (err) {
+    console.error('[searchUsers] Error during user search:', err);
+    return [];
+  }
 }
+
 
 // Supabase Auth Helpers
 export async function forgotPassword(email: string, redirectTo: string): Promise<void> {
@@ -698,21 +924,61 @@ export async function updatePassword(password: string): Promise<void> {
 }
 
 export async function signInWithGoogle(redirectTo?: string): Promise<void> {
+  const store = useAuthStore.getState();
+
   if (isMockMode()) {
-    const foundUser = mockDb.getUsers()[0];
+    const users = mockDb.getUsers();
+    const googleEmail = 'google.user@example.test';
+    const foundUser = users.find((candidate: any) => candidate.email === googleEmail) || {
+      id: `google_${Date.now()}`,
+      email: googleEmail,
+      user_metadata: { full_name: 'Google User', avatar_url: '', provider: 'google' },
+    };
+    if (!users.some((candidate: any) => candidate.id === foundUser.id)) {
+      mockDb.setUsers([...users, foundUser]);
+    }
     const profiles = mockDb.getProfiles();
-    const profile = profiles.find((p: any) => p.id === foundUser.id);
-    useAuthStore.getState().setSession(foundUser, profile || null);
+    let profile = profiles.find((p: any) => p.id === foundUser.id);
+    if (!profile) {
+      profile = {
+        id: foundUser.id,
+        email: googleEmail,
+        username: `google_user_${foundUser.id.slice(-6)}`,
+        display_name: 'Google User',
+        avatar_url: '',
+        cover_url: '',
+        bio: '',
+        website: '',
+        followers_count: 0,
+        following_count: 0,
+        is_private: false,
+        is_verified: false,
+        birthday: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any;
+      mockDb.setProfiles([...profiles, profile]);
+    }
+    store.setSession(foundUser, profile as UserProfile);
+    store.setAuthSetupRequired(!foundUser.user_metadata?.google_profile_completed);
     await initializeE2EKeys(foundUser.id, 'web-device-1');
     return;
   }
-  const { error } = await supabase.auth.signInWithOAuth({
+
+  const effectiveRedirect = redirectTo || (typeof window !== 'undefined' ? window.location.origin : undefined);
+
+  const { data, error } = await supabase.auth.signInWithOAuth({
     provider: 'google',
     options: {
-      redirectTo,
+      redirectTo: effectiveRedirect,
     },
   });
+
   if (error) throw error;
+
+  if (data?.url && typeof window !== 'undefined') {
+    window.location.href = data.url;
+  }
 }
 
 export async function sendPhoneOtp(phone: string): Promise<void> {
@@ -764,7 +1030,38 @@ export function setupAuthListener() {
       } catch (err) {
         console.warn('Failed to fetch profile on auth change:', err);
       }
-      store.setSession(session.user, profile);
+      const existingEmailProfile = session.user.email
+        ? await fetchProfileByEmail(session.user.email)
+        : null;
+      if (existingEmailProfile && existingEmailProfile.id !== session.user.id) {
+        await supabase.auth.signOut();
+        store.setSession(null, null);
+        throw new Error('This Google email is already linked to an existing JamSh account. Log in to that account first to link Google securely.');
+      }
+
+      const finalProfile: UserProfile = profile || ({
+        id: session.user.id,
+        email: session.user.email || null,
+        username: (session.user.user_metadata?.username || session.user.email?.split('@')[0] || `user_${session.user.id.slice(0, 6)}`) as string,
+        display_name: (session.user.user_metadata?.full_name || session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || 'JamSh User') as string,
+        avatar_url: (session.user.user_metadata?.avatar_url || '') as string,
+        cover_url: '',
+        bio: '',
+        website: '',
+        followers_count: 0,
+        following_count: 0,
+        is_private: false,
+        is_verified: false,
+        birthday: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      } as any);
+
+      store.setSession(session.user, finalProfile);
+      store.setAuthSetupRequired(
+        session.user.app_metadata?.provider === 'google' &&
+        session.user.user_metadata?.google_profile_completed !== true
+      );
       try {
         await initializeE2EKeys(session.user.id, 'web-device-1');
       } catch (e) {
@@ -816,8 +1113,9 @@ export async function fetchFeed(page = 0, limit = 10): Promise<Post[]> {
         .range(page * limit, (page + 1) * limit - 1);
 
       if (!error && data) {
+        const authorizedData = await signPostMediaUrls(data as Post[]);
         if (currentUser) {
-          const postIds = data.map(p => p.id);
+          const postIds = authorizedData.map(p => p.id);
           const { data: reactions } = await supabase
             .from('thunder_reactions')
             .select('post_id')
@@ -825,12 +1123,12 @@ export async function fetchFeed(page = 0, limit = 10): Promise<Post[]> {
             .in('post_id', postIds);
 
           const reactedIds = new Set(reactions?.map(r => r.post_id) || []);
-          return data.map((post: any) => ({
+          return authorizedData.map((post: any) => ({
             ...post,
             thundered_by_me: reactedIds.has(post.id),
           })) as Post[];
         }
-        return data as Post[];
+        return authorizedData;
       }
     } catch (e) {}
   }
@@ -851,10 +1149,13 @@ export async function fetchFeed(page = 0, limit = 10): Promise<Post[]> {
       .map((f: any) => f.following_id);
   }
 
-  let filteredPosts = posts;
-  if (currentUser && followedIds.length > 0) {
-    filteredPosts = posts.filter(p => p.user_id === currentUser.id || followedIds.includes(p.user_id));
-  }
+  let filteredPosts = posts.filter((post: any) => {
+    if (post.status && post.status !== 'published') return false;
+    if (!currentUser) return post.visibility !== 'private';
+    if (post.user_id === currentUser.id) return true;
+    if (post.visibility === 'private') return followedIds.includes(post.user_id);
+    return followedIds.length === 0 || followedIds.includes(post.user_id) || post.visibility !== 'private';
+  });
 
   const sorted = [...filteredPosts].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
   const chunk = sorted.slice(page * limit, (page + 1) * limit);
@@ -868,6 +1169,69 @@ export async function fetchFeed(page = 0, limit = 10): Promise<Post[]> {
       thundered_by_me: thunderedByMe,
     } as any;
   });
+}
+
+async function signPostMediaUrls(posts: Post[]): Promise<Post[]> {
+  return Promise.all(posts.map(async (post) => {
+    const media = await Promise.all((post.media || []).map(async (item) => {
+      const rawPath = item.media_url;
+      const publicMarker = '/storage/v1/object/public/';
+      const publicIndex = rawPath.indexOf(publicMarker);
+      let bucket = 'posts';
+      let path = rawPath;
+
+      if (publicIndex >= 0) {
+        const objectPath = rawPath.slice(publicIndex + publicMarker.length);
+        const separator = objectPath.indexOf('/');
+        if (separator > 0) {
+          bucket = objectPath.slice(0, separator);
+          path = objectPath.slice(separator + 1);
+        }
+      } else {
+        const separator = rawPath.indexOf('/');
+        if (separator > 0) {
+          bucket = rawPath.slice(0, separator);
+          path = rawPath.slice(separator + 1);
+        }
+      }
+
+      const { data, error } = await supabase.storage.from(bucket).createSignedUrl(path, 3600);
+      if (error || !data?.signedUrl) {
+        throw error || new Error('Unable to authorize post media');
+      }
+      return { ...item, media_url: data.signedUrl };
+    }));
+    return { ...post, media };
+  }));
+}
+
+export async function uploadPostImage(file: Blob, fileName: string): Promise<string> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (file.size === 0) throw new Error('The selected image is empty');
+  if (file.size > 25 * 1024 * 1024) throw new Error('Images must be 25 MB or smaller');
+
+  const extension = fileName.split('.').pop()?.toLowerCase() || 'jpg';
+  const allowedExtensions = new Set(['jpg', 'jpeg', 'png', 'webp', 'gif', 'heic']);
+  if (!allowedExtensions.has(extension)) throw new Error('Unsupported image format');
+
+  const storagePath = `${user.id}/${uuidv4()}.${extension}`;
+  const { error } = await supabase.storage.from('posts').upload(storagePath, file, {
+    cacheControl: '3600',
+    upsert: false,
+    contentType: file.type || `image/${extension === 'jpg' ? 'jpeg' : extension}`,
+  });
+  if (error) throw error;
+  return `posts/${storagePath}`;
+}
+
+export async function removePostMedia(storageReference: string): Promise<void> {
+  const separator = storageReference.indexOf('/');
+  if (separator <= 0) throw new Error('Invalid post media storage reference');
+  const bucket = storageReference.slice(0, separator);
+  const path = storageReference.slice(separator + 1);
+  const { error } = await supabase.storage.from(bucket).remove([path]);
+  if (error) throw error;
 }
 
 export async function createPost(content: string, type: 'text' | 'image' | 'video' | 'multiple', mediaUrls: string[]): Promise<Post> {
@@ -897,7 +1261,11 @@ export async function createPost(content: string, type: 'text' | 'image' | 'vide
             media_type: url.match(/\.(mp4|mov|webm)$/i) ? 'video' : 'image',
             position: index,
           }));
-          await supabase.from('post_media').insert(mediaInserts);
+          const { error: mediaError } = await supabase.from('post_media').insert(mediaInserts);
+          if (mediaError) {
+            await supabase.from('posts').delete().eq('id', post.id).eq('user_id', user.id);
+            throw mediaError;
+          }
         }
 
         const { data: fullPost } = await supabase
@@ -906,9 +1274,11 @@ export async function createPost(content: string, type: 'text' | 'image' | 'vide
           .eq('id', post.id)
           .single();
 
-        return (fullPost || post) as Post;
+        return (await signPostMediaUrls([(fullPost || post) as Post]))[0];
       }
-    } catch (e) {}
+    } catch (e) {
+      throw e;
+    }
   }
 
   const posts = mockDb.getPosts();
@@ -1240,6 +1610,65 @@ export async function fetchFollowing(userId: string): Promise<UserProfile[]> {
   }
 }
 
+export async function fetchPendingFollowRequests(): Promise<Array<{ id: string; follower_id: string; following_id: string; status: string; created_at: string; follower?: UserProfile }>> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (isMockMode()) {
+    return mockDb.getFollowers().filter((row: any) => row.following_id === user.id && row.status === 'pending');
+  }
+
+  const { data, error } = await supabase
+    .from('followers')
+    .select('id, follower_id, following_id, status, created_at, follower:profiles!followers_follower_id_fkey(*)')
+    .eq('following_id', user.id)
+    .eq('status', 'pending')
+    .order('created_at', { ascending: false });
+  if (error) throw error;
+  return (data || []) as any;
+}
+
+export async function respondToFollowRequest(requestId: string, decision: 'accepted' | 'rejected'): Promise<void> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (!requestId) throw new Error('Missing follow request');
+
+  if (isMockMode()) {
+    const followers = mockDb.getFollowers();
+    const request = followers.find((row: any) => row.id === requestId && row.following_id === user.id && row.status === 'pending');
+    if (!request) throw new Error('Follow request not found');
+    if (decision === 'rejected') {
+      mockDb.setFollowers(followers.filter((row: any) => row.id !== requestId));
+    } else {
+      request.status = 'accepted';
+      mockDb.setFollowers([...followers]);
+    }
+    return;
+  }
+
+  const { error } = decision === 'rejected'
+    ? await supabase.from('followers').delete()
+      .eq('id', requestId)
+      .eq('following_id', user.id)
+      .eq('status', 'pending')
+    : await supabase.from('followers').update({ status: 'accepted' })
+      .eq('id', requestId)
+      .eq('following_id', user.id)
+      .eq('status', 'pending');
+  if (error) throw error;
+}
+
+export async function cancelFollowRequest(followingId: string): Promise<void> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  const { error } = await supabase
+    .from('followers')
+    .delete()
+    .eq('follower_id', user.id)
+    .eq('following_id', followingId)
+    .eq('status', 'pending');
+  if (error) throw error;
+}
+
 
 // ----------------------------------------------------
 // PUBLIC KEY CACHE & OFFLINE QUEUE UTILITIES
@@ -1394,31 +1823,23 @@ export async function startNearbyAdvertising(myUserId: string, username: string)
       }
       
       if (tokens.length === 0) {
-        await JamshNearby.startAdvertising({ discoveryId: "beacon" });
+        const myFp = await computeFingerprint(myKeys.publicKey);
+        await JamshNearby.startAdvertising({ discoveryId: myFp.substring(0, 8) });
         return;
       }
       
-      const BATCH_SIZE = 5;
-      const startIndex = (currentAdvertisingBatchIndex * BATCH_SIZE) % tokens.length;
-      const batch = tokens.slice(startIndex, startIndex + BATCH_SIZE);
-      
-      if (batch.length < BATCH_SIZE && tokens.length > BATCH_SIZE) {
-        const remaining = BATCH_SIZE - batch.length;
-        batch.push(...tokens.slice(0, remaining));
-      }
-      
-      const combinedDiscoveryId = batch.join(',');
-      await JamshNearby.startAdvertising({ discoveryId: combinedDiscoveryId });
+      // Rotate single 8-char token to strictly fit within 31-byte legacy BLE ADV packet
+      const currentToken = tokens[currentAdvertisingBatchIndex % tokens.length].substring(0, 8);
+      await JamshNearby.startAdvertising({ discoveryId: currentToken });
       isAdvertisingActive = true;
-      
-      currentAdvertisingBatchIndex = (currentAdvertisingBatchIndex + 1) % Math.ceil(tokens.length / BATCH_SIZE);
+      currentAdvertisingBatchIndex = (currentAdvertisingBatchIndex + 1) % tokens.length;
     } catch (e) {
       console.error('[Nearby] Failed in advertising step', e);
     }
   };
   
   await advertiseStep();
-  advertisingInterval = setInterval(advertiseStep, 30000);
+  advertisingInterval = setInterval(advertiseStep, 10000);
   console.log("[Nearby] Discovery started");
 }
 
@@ -1468,12 +1889,20 @@ export async function startNearbyScanning(myUserId: string) {
         const expectedTokenFull = await hmacSHA256(shared, `discovery|${epoch}`);
         const expectedTokenTruncated = expectedTokenFull.substring(0, 16);
         
-        if (peerTokens.includes(expectedTokenTruncated)) {
+        const expectedToken8 = expectedTokenFull.substring(0, 8);
+        if (peer.discoveryId.startsWith(expectedToken8) || peerTokens.includes(expectedTokenTruncated) || peerTokens.includes(expectedToken8)) {
           nearbyPeers.set(peerId, { ip: peer.ip, lastSeen: Date.now(), isOnline: !!peer.isOnline });
-          console.log("[Nearby] Authenticated peer established");
+          console.log("[Nearby] Authenticated peer established via BLE beacon:", peerId);
           
           const evt = new CustomEvent('nearbyPeerUpdate', { detail: { peerId, ip: peer.ip, active: true, isOnline: !!peer.isOnline } });
           window.dispatchEvent(evt);
+
+          // Trigger automatic forwarding of any pending mesh relay packets to this peer!
+          try {
+            if (Capacitor.isNativePlatform()) {
+              await JamshNearby.forwardPendingRelays();
+            }
+          } catch (e) {}
           break;
         }
       }
@@ -1499,10 +1928,10 @@ export async function checkIsOnline(): Promise<boolean> {
       const status = await JamshNearby.getConnectivityStatus();
       return !!status.connected;
     } catch (e) {
-      return typeof navigator !== 'undefined' ? navigator.onLine : true;
+      return typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
     }
   }
-  return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  return typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean' ? navigator.onLine : true;
 }
 
 let isSyncingQueue = false;
@@ -1580,7 +2009,24 @@ export async function initializeNearbyListeners(myUserId: string) {
     await JamshNearby.addListener('messageReceived', async (data: any) => {
       const envelope = data.envelope;
       const connectionId = data.connectionId;
-      if (!envelope || !envelope.id || !connectionId) return;
+      if (
+        !envelope ||
+        typeof envelope.id !== 'string' ||
+        typeof envelope.room_id !== 'string' ||
+        typeof envelope.sender_id !== 'string' ||
+        typeof envelope.recipient_id !== 'string' ||
+        typeof envelope.content !== 'string' ||
+        typeof envelope.nonce !== 'string' ||
+        !connectionId
+      ) return;
+      const expiresAt = Date.parse(envelope.expires_at || '');
+      if (
+        !Number.isFinite(expiresAt) ||
+        expiresAt <= Date.now() ||
+        !Number.isInteger(envelope.hop_count) ||
+        envelope.hop_count < 0 ||
+        envelope.hop_count > 8
+      ) return;
       
       console.log("[Nearby] Encrypted message received");
       
@@ -1589,6 +2035,7 @@ export async function initializeNearbyListeners(myUserId: string) {
       
       let decryptedText = '';
       let isValid = true;
+      let senderPubKey: string | null = null;
       const store = useAuthStore.getState();
       const isGroup = !!envelope.is_group;
       
@@ -1621,12 +2068,14 @@ export async function initializeNearbyListeners(myUserId: string) {
           isValid = false;
         }
         
-        let senderPubKey = authenticatedPeerKey;
+        senderPubKey = authenticatedPeerKey;
         if (!senderPubKey) {
-          const users = mockDb.getUsers();
-          const senderUser = users.find((u: any) => u.id === envelope.sender_id);
-          if (senderUser) {
-            senderPubKey = senderUser.devicePublicKey;
+          if (isMockMode()) {
+            const users = mockDb.getUsers();
+            const senderUser = users.find((u: any) => u.id === envelope.sender_id);
+            if (senderUser) {
+              senderPubKey = senderUser.devicePublicKey;
+            }
           }
         }
         
@@ -1669,6 +2118,27 @@ export async function initializeNearbyListeners(myUserId: string) {
         
         const event = new CustomEvent('nearbyMessageReceived', { detail: { ...newMsg, decrypted: decryptedText } });
         window.dispatchEvent(event);
+
+        // Dispatch cryptographically signed Delivery ACK to sender
+        if (isValid && senderPubKey && store.deviceKeyPair) {
+          try {
+            const shared = deriveSharedSecret(store.deviceKeyPair.privateKey, senderPubKey);
+            const ackSig = await generateAckSignature(shared, envelope.id);
+            await JamshNearby.respondToEnvelope({
+              connectionId,
+              ack: {
+                protocol_version: '1.0',
+                message_id: envelope.id,
+                ack_status: 'SUCCESS',
+                signature: ackSig,
+                authenticated: true
+              }
+            });
+            console.log('[Nearby] Authenticated delivery ACK generated and cached for connection:', connectionId);
+          } catch (ackErr) {
+            console.error('[Nearby] Failed to generate authenticated ACK', ackErr);
+          }
+        }
       }
     });
 
@@ -1763,10 +2233,6 @@ export async function fetchChatRooms(subTab: 'messages' | 'requests' = 'messages
 
         const mapped = await Promise.all(filtered.map(async (r: any) => {
           let preview = r.last_message_preview;
-          if (typeof localStorage !== 'undefined') {
-            const cached = localStorage.getItem('jamsh_plain_room_' + r.id) || (preview ? localStorage.getItem('jamsh_plain_' + preview) : null);
-            if (cached) preview = cached;
-          }
           if (!preview || preview.endsWith('==') || (preview.length > 50 && !preview.includes(' '))) {
             preview = r.type === 'group' ? 'Group chat active' : 'Handshake verified – send a message';
           }
@@ -1832,10 +2298,6 @@ export async function fetchChatRooms(subTab: 'messages' | 'requests' = 'messages
   const myRooms = rooms.filter((r: any) => r.members.includes(user.id));
   const mapped = myRooms.map((r: any) => {
     let preview = r.last_message_preview;
-    if (typeof localStorage !== 'undefined') {
-      const cached = localStorage.getItem('jamsh_plain_room_' + r.id) || (preview ? localStorage.getItem('jamsh_plain_' + preview) : null);
-      if (cached) preview = cached;
-    }
     if (!preview || preview.endsWith('==') || (preview.length > 50 && !preview.includes(' '))) {
       preview = r.type === 'group' ? 'Group chat active' : 'Handshake verified – send a message';
     }
@@ -1889,65 +2351,128 @@ export function generateDeterministicUUID(seed: string): string {
 export async function createChatRoom(peerId: string): Promise<ChatRoom> {
   const user = useAuthStore.getState().user;
   if (!user) throw new Error('Not authenticated');
+  if (!peerId) throw new Error('Recipient peerId is required');
+  if (user.id === peerId) throw new Error('Cannot start a chat with yourself');
 
   if (!isMockMode()) {
     try {
-      const sortedUserIds = [user.id, peerId].sort().join('_');
-      const deterministicRoomId = generateDeterministicUUID(sortedUserIds);
+      // 1. Call our atomic, idempotent database RPC
+      const { data: roomData, error: rpcError } = await supabase.rpc('get_or_create_direct_room', {
+        p_peer_id: peerId,
+      });
 
-      const { data: existingRoom } = await supabase
-        .from('chat_rooms')
-        .select('*')
-        .eq('id', deterministicRoomId)
-        .single();
+      if (!rpcError && roomData) {
+        let peerProfile: UserProfile | null = (roomData.peer as UserProfile) || null;
+        if (!peerProfile) {
+          peerProfile = await fetchProfile(peerId);
+        }
 
-      if (existingRoom) {
-        const peerProfile = await fetchProfile(peerId);
+
+        // Cache peer public key for offline and E2EE messaging
+        if (peerProfile?.id) {
+          try {
+            const { data: keyData } = await supabase
+              .from('device_keys')
+              .select('identity_key')
+              .eq('user_id', peerProfile.id)
+              .order('created_at', { ascending: false })
+              .limit(1)
+              .maybeSingle();
+            if (keyData?.identity_key) {
+              cachePublicKey(user.id, peerProfile.id, keyData.identity_key);
+            }
+          } catch (e) {}
+        }
+
         return {
-          ...existingRoom,
-          name: peerProfile?.display_name || peerProfile?.username || 'Chat Partner',
-          peer: peerProfile,
-        } as any;
+          id: roomData.id,
+          name: roomData.name || peerProfile?.display_name || peerProfile?.username || 'Chat Partner',
+          type: (roomData.type || 'direct') as 'direct' | 'group',
+          status: roomData.status || 'accepted',
+          created_at: roomData.created_at || new Date().toISOString(),
+          last_message_at: roomData.last_message_at || roomData.created_at,
+          last_message_preview: roomData.last_message_preview || null,
+          unread_count: 0,
+          peer: peerProfile || undefined,
+          members: [user.id, peerId],
+        } as ChatRoom;
+      }
+    } catch (e) {
+      console.warn('[createChatRoom] RPC error, attempting direct query fallback:', e);
+    }
+
+    // 2. Fallback: Query existing direct room through chat_members join
+    try {
+      const { data: myMemberships } = await supabase
+        .from('chat_members')
+        .select('room_id')
+        .eq('user_id', user.id);
+
+      if (myMemberships && myMemberships.length > 0) {
+        const roomIds = myMemberships.map((m: any) => m.room_id);
+        const { data: peerMembership } = await supabase
+          .from('chat_members')
+          .select('room_id')
+          .eq('user_id', peerId)
+          .in('room_id', roomIds)
+          .limit(1)
+          .maybeSingle();
+
+        if (peerMembership) {
+          const { data: existingRoom } = await supabase
+            .from('chat_rooms')
+            .select('*')
+            .eq('id', peerMembership.room_id)
+            .single();
+
+          if (existingRoom && existingRoom.type === 'direct') {
+            const peerProfile = await fetchProfile(peerId);
+            return {
+              ...existingRoom,
+              name: peerProfile?.display_name || peerProfile?.username || 'Chat Partner',
+              peer: peerProfile || undefined,
+              members: [user.id, peerId],
+            } as ChatRoom;
+          }
+        }
       }
 
-      // Check if user follows peer. If not following, set status = 'pending' (Message Request)
-      let isFollowing = false;
-      try {
-        const { data: followRel } = await supabase
-          .from('followers')
-          .select('id')
-          .eq('follower_id', user.id)
-          .eq('following_id', peerId)
-          .single();
-        if (followRel) isFollowing = true;
-      } catch (err) {}
-
-      const { data: room, error: roomError } = await supabase
+      // Create new direct room safely
+      const { data: newRoom, error: createErr } = await supabase
         .from('chat_rooms')
-        .insert({ id: deterministicRoomId, type: 'direct', status: 'accepted', last_message_at: new Date().toISOString() })
+        .insert({
+          type: 'direct',
+          status: 'accepted',
+          last_message_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        })
         .select()
         .single();
 
-      if (!roomError && room) {
+      if (!createErr && newRoom) {
         await supabase.from('chat_members').insert([
-          { room_id: room.id, user_id: user.id, role: 'admin' },
-          { room_id: room.id, user_id: peerId, role: 'member' },
+          { room_id: newRoom.id, user_id: user.id, role: 'admin' },
+          { room_id: newRoom.id, user_id: peerId, role: 'member' },
         ]);
         const peerProfile = await fetchProfile(peerId);
         return {
-          ...room,
+          ...newRoom,
           name: peerProfile?.display_name || peerProfile?.username || 'Chat Partner',
-          peer: peerProfile,
-        } as any;
+          peer: peerProfile || undefined,
+          members: [user.id, peerId],
+        } as ChatRoom;
       }
-    } catch (e) {}
+    } catch (fallbackErr) {
+      console.error('[createChatRoom] Failed to retrieve or create direct chat room:', fallbackErr);
+      throw fallbackErr;
+    }
   }
 
-  // Fallback
+  // Fallback for mock mode
   const rooms = mockDb.getChatRooms();
-  const preExisting = rooms.find((r: any) => r.members.includes(user.id) && r.members.includes(peerId));
+  const preExisting = rooms.find((r: any) => r.members?.includes(user.id) && r.members?.includes(peerId));
   const profiles = mockDb.getProfiles();
-  const peerProfile = profiles.find(p => p.id === peerId) || null;
+  const peerProfile = profiles.find((p: any) => p.id === peerId) || null;
 
   if (preExisting) {
     return {
@@ -1964,6 +2489,7 @@ export async function createChatRoom(peerId: string): Promise<ChatRoom> {
     last_message_at: new Date().toISOString(),
     members: [user.id, peerId],
   };
+
 
   mockDb.setChatRooms([...rooms, newRoom]);
   return {
@@ -2033,8 +2559,15 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
   const user = useAuthStore.getState().user;
   if (!user) throw new Error('Not authenticated');
 
-  const myKeys = useAuthStore.getState().deviceKeyPair;
-  if (!myKeys) throw new Error('Device keys not loaded');
+  let myKeys = useAuthStore.getState().deviceKeyPair;
+  if (!myKeys) {
+    try {
+      myKeys = await initializeE2EKeys(user.id, 'web-device-1');
+    } catch (e) {
+      console.warn('[sendEncryptedMessage] Failed to auto-initialize device keys:', e);
+    }
+  }
+  if (!myKeys) throw new Error('Device encryption keys not loaded. Please log in again.');
 
   const messageId = uuidv4();
   const online = await checkIsOnline();
@@ -2057,7 +2590,7 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
           .eq('user_id', recipientId)
           .order('created_at', { ascending: false })
           .limit(1)
-          .single();
+          .maybeSingle();
         if (keyData?.identity_key) {
           recipientPublicKey = keyData.identity_key;
           cachePublicKey(user.id, recipientId, recipientPublicKey);
@@ -2070,7 +2603,7 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
             .from('profiles')
             .select('device_public_key')
             .eq('id', recipientId)
-            .single();
+            .maybeSingle();
           if (profData?.device_public_key) {
             recipientPublicKey = profData.device_public_key;
             cachePublicKey(user.id, recipientId, recipientPublicKey);
@@ -2079,7 +2612,7 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
       }
     }
 
-    if (!recipientPublicKey) {
+    if (!recipientPublicKey && isMockMode()) {
       const users = mockDb.getUsers();
       const peer = users.find((u: any) => u.id === recipientId);
       if (peer) {
@@ -2089,13 +2622,10 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
     }
 
     if (!recipientPublicKey) {
-      const recipientKeyPair = await generateDeterministicKeyPair(recipientId + '_jamsh_e2ee_master_seed_v1');
-      recipientPublicKey = recipientKeyPair.publicKey;
-      if (user.id) {
-        cachePublicKey(user.id, recipientId, recipientPublicKey);
-      }
+      throw new Error("Recipient has not published an encryption key yet. They must log in to establish secure messaging.");
     }
   }
+
 
   // 2. Encrypt payload locally
   let ciphertext = '';
@@ -2107,15 +2637,9 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
     ciphertext = enc.ciphertext;
     nonce = enc.nonce;
   } else {
-    try {
-      const enc = await encryptPairwise(plaintext, myKeys.privateKey, recipientPublicKey);
-      ciphertext = enc.ciphertext;
-      nonce = enc.nonce;
-    } catch (e) {
-      console.warn('[E2EE Pairwise Encrypt Warning] Fallback to plaintext payload:', e);
-      ciphertext = plaintext;
-      nonce = bytesToBase64(new Uint8Array(12));
-    }
+    const enc = await encryptPairwise(plaintext, myKeys.privateKey, recipientPublicKey);
+    ciphertext = enc.ciphertext;
+    nonce = enc.nonce;
   }
 
 
@@ -2154,16 +2678,12 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
     sender_public_key: myKeys.publicKey,
     origin_lat: originLat,
     origin_lng: originLng,
-    relay_radius: 5000 // 5km default geofence limit
+    relay_radius: 5000,
+    hop_count: 0,
+    max_hops: 8,
+    expires_at: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+    expires_at_epoch_ms: Date.now() + 24 * 60 * 60 * 1000
   };
-
-  if (typeof localStorage !== 'undefined') {
-    try {
-      localStorage.setItem('jamsh_plain_room_' + roomId, plaintext);
-      localStorage.setItem('jamsh_plain_' + messageId, plaintext);
-      localStorage.setItem('jamsh_plain_' + ciphertext, plaintext);
-    } catch (e) {}
-  }
 
   // 3. Transport Decision Layer
   if (isMockMode()) {
@@ -2243,12 +2763,19 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
 
   // Try Mode 2: Direct Bluetooth LE GATT write
   const peerInfo = isGroup ? null : nearbyPeers.get(recipientId);
+  let transportMode: 'online' | 'ble_direct' | 'ble_mesh' | 'queued' = 'queued';
   if (peerInfo && (Date.now() - peerInfo.lastSeen < 60000)) {
     try {
       const res = await JamshNearby.sendEnvelope({ ip: peerInfo.ip, envelope });
       if (res && res.ack && res.ack.ack_status === 'SUCCESS') {
-        finalStatus = 'sent_nearby';
-        console.log("[Nearby] Encrypted direct BLE message delivery confirmed.");
+        let ackVerified = true;
+        if (res.ack.authenticated && res.ack.signature && recipientPublicKey && myKeys) {
+          const shared = deriveSharedSecret(myKeys.privateKey, recipientPublicKey);
+          ackVerified = await verifyAckSignature(shared, messageId, res.ack.signature);
+        }
+        finalStatus = ackVerified ? 'delivered_nearby' : 'sent_nearby';
+        transportMode = 'ble_direct';
+        console.log("[Nearby] Encrypted direct BLE message delivery confirmed. ACK authenticated:", ackVerified);
       }
     } catch (nearbyErr) {
       console.error('[Transport] Direct BLE GATT delivery failed', nearbyErr);
@@ -2256,7 +2783,7 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
   }
 
   // Try Mode 3: Bluetooth Mesh Relay routing
-  if (finalStatus !== 'sent_nearby') {
+  if (finalStatus !== 'delivered_nearby' && finalStatus !== 'sent_nearby') {
     const peers = Array.from(nearbyPeers.values());
     const onlineRelay = peers.find(p => p.isOnline && (Date.now() - p.lastSeen < 60000));
     const targetRelay = onlineRelay || peers.find(p => Date.now() - p.lastSeen < 60000);
@@ -2267,6 +2794,7 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
         const res = await JamshNearby.sendEnvelope({ ip: targetRelay.ip, envelope });
         if (res && res.ack && res.ack.ack_status === 'SUCCESS') {
           finalStatus = 'relayed_nearby';
+          transportMode = 'ble_mesh';
           console.log("[Relay] Encrypted packet accepted by relay node.");
         }
       } catch (relayErr) {
@@ -2287,9 +2815,8 @@ export async function sendEncryptedMessage(roomId: string, recipientId: string, 
     is_encrypted: true,
     type: 'text',
     created_at: envelope.created_at,
-    // Attach custom offline status
-    // @ts-ignore
-    local_status: finalStatus
+    local_status: finalStatus as any,
+    transport: transportMode,
   } as any;
 
   const localMessages = mockDb.getMessages();
@@ -2309,16 +2836,6 @@ export async function decryptReceivedMessage(message: Message, senderId: string)
       myKeys = await initializeE2EKeys(store.user.id, 'web-device-1');
     } catch (e) {}
   }
-  if (!myKeys && store.user?.id) {
-    myKeys = await generateDeterministicKeyPair(store.user.id + '_jamsh_e2ee_master_seed_v1');
-    store.deviceKeyPair = myKeys;
-  }
-
-  if (typeof localStorage !== 'undefined') {
-    const cached = localStorage.getItem('jamsh_plain_' + message.id) || localStorage.getItem('jamsh_plain_' + message.content);
-    if (cached) return cached;
-  }
-
   if (!message.is_encrypted || !message.nonce) return message.content;
   if (!myKeys) {
     return !message.content.endsWith('==') ? message.content : '⚡ [Encrypted Message]';
@@ -2330,12 +2847,6 @@ export async function decryptReceivedMessage(message: Message, senderId: string)
     try {
       const cryptoKey = await importRawAESKey(groupKeyHex);
       const dec = await decryptWithKey(message.content, message.nonce, cryptoKey);
-      if (typeof localStorage !== 'undefined') {
-        try {
-          localStorage.setItem('jamsh_plain_' + message.id, dec);
-          localStorage.setItem('jamsh_plain_' + message.content, dec);
-        } catch (e) {}
-      }
       return dec;
     } catch (e) {
       console.error('[E2EE Group] Decryption failed with group key', e);
@@ -2426,45 +2937,16 @@ export async function decryptReceivedMessage(message: Message, senderId: string)
     }
   }
 
-  if (!targetPublicKey && targetUserId) {
-    const peerKeyPair = await generateDeterministicKeyPair(targetUserId + '_jamsh_e2ee_master_seed_v1');
-    targetPublicKey = peerKeyPair.publicKey;
-    if (myUserId) {
-      cachePublicKey(myUserId, targetUserId, targetPublicKey);
-    }
-  }
-
   if (!targetPublicKey) {
-    return !message.content.endsWith('==') ? message.content : '⚡ [Encrypted Message]';
+    return '⚡ [Encrypted Message: key unavailable]';
   }
 
   try {
     // 2. Decrypt pairwise using my private key and peer's public key
     const decrypted = await decryptPairwise(message.content, message.nonce, myKeys.privateKey, targetPublicKey);
-    if (typeof localStorage !== 'undefined') {
-      try {
-        localStorage.setItem('jamsh_plain_' + message.id, decrypted);
-        localStorage.setItem('jamsh_plain_' + message.content, decrypted);
-      } catch (e) {}
-    }
     return decrypted;
   } catch (err) {
-    // Retry with deterministic key pairs as robust fallback
-    if (myUserId && targetUserId) {
-      try {
-        const fallbackMyKeys = await generateDeterministicKeyPair(myUserId + '_jamsh_e2ee_master_seed_v1');
-        const fallbackPeerKeys = await generateDeterministicKeyPair(targetUserId + '_jamsh_e2ee_master_seed_v1');
-        const dec = await decryptPairwise(message.content, message.nonce, fallbackMyKeys.privateKey, fallbackPeerKeys.publicKey);
-        if (typeof localStorage !== 'undefined') {
-          try {
-            localStorage.setItem('jamsh_plain_' + message.id, dec);
-            localStorage.setItem('jamsh_plain_' + message.content, dec);
-          } catch (e) {}
-        }
-        return dec;
-      } catch (e2) {}
-    }
-    return !message.content.endsWith('==') ? message.content : '⚡ [Encrypted Message]';
+    return '⚡ [Decryption failed]';
   }
 }
 
@@ -3079,20 +3561,15 @@ export async function fetchTrendingContent(): Promise<any> {
 }
 
 export async function fetchSearchSuggestions(query: string): Promise<any[]> {
-  if (!query) return [];
-  const searchVal = query.toLowerCase();
+  const cleanQuery = (query || '').trim().replace(/^@/, '');
+  if (!cleanQuery) return [];
 
   const online = await checkIsOnline();
   if (online && !isMockMode()) {
     try {
-      const { data: profiles } = await supabase
-        .from('profiles')
-        .select('id, username, display_name, avatar_url')
-        .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-        .limit(5);
-
-      if (profiles) {
-        return profiles.map(p => ({
+      const users = await searchUsers(cleanQuery, 5);
+      if (users && users.length > 0) {
+        return users.map(p => ({
           type: 'user',
           text: p.username,
           id: p.id,
@@ -3100,16 +3577,19 @@ export async function fetchSearchSuggestions(query: string): Promise<any[]> {
           avatar_url: p.avatar_url
         }));
       }
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[fetchSearchSuggestions] Search error:', e);
+    }
   }
 
-  const profiles = mockDb.getProfiles();
-  const matched = profiles.filter(p =>
-    p.username.toLowerCase().includes(searchVal) ||
-    p.display_name?.toLowerCase().includes(searchVal)
+  const profiles = isMockMode() ? mockDb.getProfiles() : getCachedProfiles();
+  const searchVal = cleanQuery.toLowerCase();
+  const matched = profiles.filter((p: any) =>
+    (p.username && p.username.toLowerCase().includes(searchVal)) ||
+    (p.display_name && p.display_name.toLowerCase().includes(searchVal))
   );
 
-  return matched.map(p => ({
+  return matched.map((p: any) => ({
     type: 'user',
     text: p.username,
     id: p.id,
@@ -3119,29 +3599,45 @@ export async function fetchSearchSuggestions(query: string): Promise<any[]> {
 }
 
 export async function searchExploreAll(query: string): Promise<any> {
-  const searchVal = query.toLowerCase();
+  const cleanQuery = (query || '').trim().replace(/^@/, '');
+  const searchVal = cleanQuery.toLowerCase();
   const online = await checkIsOnline();
 
   if (online && !isMockMode()) {
     try {
-      const { data: users } = await supabase
-        .from('profiles')
-        .select('*')
-        .or(`username.ilike.%${query}%,display_name.ilike.%${query}%`)
-        .limit(10);
+      // 1. Search Users via reliable searchUsers RPC & indexing
+      const users = await searchUsers(cleanQuery, 10);
 
-      const { data: posts } = await supabase
-        .from('posts')
-        .select('*, user:profiles(*), media:post_media(*)')
-        .eq('status', 'published')
-        .ilike('content', `%${query}%`)
-        .limit(10);
+      // 2. Search Posts
+      let posts: any[] = [];
+      try {
+        const { data: postsData } = await supabase
+          .from('posts')
+          .select('*, user:profiles(*), media:post_media(*)')
+          .eq('status', 'published')
+          .ilike('content', `%${cleanQuery}%`)
+          .limit(10);
+        if (postsData) posts = postsData;
+      } catch (pErr) {}
 
-      const { data: communities } = await supabase
-        .from('communities')
-        .select('*')
-        .ilike('name', `%${query}%`)
-        .limit(10);
+      // 3. Search Group Communities (from chat_rooms where type = group)
+      let communities: any[] = [];
+      try {
+        const { data: groupData } = await supabase
+          .from('chat_rooms')
+          .select('id, name, description, avatar_url, created_at')
+          .eq('type', 'group')
+          .ilike('name', `%${cleanQuery}%`)
+          .limit(10);
+        if (groupData) {
+          communities = groupData.map((c: any) => ({
+            id: c.id,
+            name: c.name || 'Group Community',
+            description: c.description || 'E2EE Group Chat Community',
+            avatarUrl: c.avatar_url
+          }));
+        }
+      } catch (cErr) {}
 
       return {
         users: users || [],
@@ -3149,22 +3645,25 @@ export async function searchExploreAll(query: string): Promise<any> {
         posts: posts || [],
         reels: posts?.filter((p: any) => p.type === 'video') || []
       };
-    } catch (e) {}
+    } catch (e) {
+      console.warn('[searchExploreAll] Search error:', e);
+    }
   }
 
-  const profiles = mockDb.getProfiles();
-  const posts = mockDb.getPosts();
-  const rooms = mockDb.getChatRooms();
+  // Fallback for mock/offline mode
+  const profiles = isMockMode() ? mockDb.getProfiles() : getCachedProfiles();
+  const posts = isMockMode() ? mockDb.getPosts() : [];
+  const rooms = isMockMode() ? mockDb.getChatRooms() : [];
 
-  const matchedUsers = profiles.filter(p =>
-    p.username.toLowerCase().includes(searchVal) ||
-    p.display_name?.toLowerCase().includes(searchVal)
+  const matchedUsers = profiles.filter((p: any) =>
+    (p.username && p.username.toLowerCase().includes(searchVal)) ||
+    (p.display_name && p.display_name.toLowerCase().includes(searchVal))
   );
 
-  const matchedPosts = posts.filter(p =>
+  const matchedPosts = posts.filter((p: any) =>
     p.content?.toLowerCase().includes(searchVal)
-  ).map(post => {
-    const author = profiles.find(p => p.id === post.userId) || { id: post.userId, username: 'anonymous_user', display_name: 'Anonymous', avatar_url: '' };
+  ).map((post: any) => {
+    const author = profiles.find((p: any) => p.id === post.userId) || { id: post.userId, username: 'anonymous_user', display_name: 'Anonymous', avatar_url: '' };
     return {
       ...post,
       user: {
@@ -3187,6 +3686,7 @@ export async function searchExploreAll(query: string): Promise<any> {
 
   return {
     users: matchedUsers,
+
     communities: matchedCommunities,
     posts: matchedPosts,
     reels: matchedPosts.filter(p => p.type === 'video')
@@ -3255,7 +3755,7 @@ export async function initializeE2EKeys(userId: string, deviceId: string) {
     }
 
     if (!keys) {
-      keys = await generateDeterministicKeyPair(userId + '_jamsh_e2ee_master_seed_v1');
+      keys = generateKeyPair();
     }
 
     // Persist key pair
@@ -3325,7 +3825,28 @@ export async function fetchReelsFeed(limit = 10, cursorTimestamp?: string, curso
       if (!response.ok) throw new Error(resJson.error || 'Failed to fetch Reels feed');
       return resJson.feed || [];
     } catch (e) {
-      console.warn('[Reels] Remote Edge function failed, falling back to mock feed', e);
+      console.warn('[Reels] Remote Edge function failed, attempting direct table fetch', e);
+      try {
+        let query = supabase
+          .from('videos')
+          .select('*, user:profiles(id, username, display_name, avatar_url)')
+          .eq('visibility', 'public')
+          .eq('moderation_status', 'approved');
+
+        if (cursorTimestamp) {
+          query = query.lt('created_at', cursorTimestamp);
+        }
+
+        const { data: dbVideos, error: dbError } = await query
+          .order('created_at', { ascending: false })
+          .limit(limit);
+
+        if (!dbError && dbVideos && dbVideos.length > 0) {
+          return dbVideos;
+        }
+      } catch (dbErr) {
+        console.warn('[Reels] Direct table fetch note:', dbErr);
+      }
     }
   }
 
@@ -3451,6 +3972,7 @@ export async function commentOnReel(videoId: string, content: string, parentId?:
     } catch (e) {
       console.warn('[Reels] Remote comment failed', e);
     }
+
   }
 
   // Fallback
@@ -3477,6 +3999,206 @@ export async function commentOnReel(videoId: string, content: string, parentId?:
   mockDb.setVideos(updated);
 
   return newComment;
+}
+
+export async function fetchReelComments(videoId: string, limit = 25): Promise<any[]> {
+  if (!isMockMode()) {
+    try {
+      const { data, error } = await supabase
+        .from('video_comments')
+        .select('*, user:profiles(id, username, display_name, avatar_url)')
+        .eq('video_id', videoId)
+        .order('created_at', { ascending: true })
+        .limit(limit);
+      if (!error && data) return data;
+    } catch (e) {
+      console.warn('[Reels] Remote fetch comments note:', e);
+    }
+  }
+
+  const comments = mockDb.getVideoComments();
+  const profiles = mockDb.getProfiles();
+  const filtered = comments.filter((c: any) => c.video_id === videoId);
+  return filtered.map((c: any) => ({
+    ...c,
+    user: profiles.find((p: any) => p.id === c.user_id) || { id: c.user_id, username: 'user', display_name: 'User' },
+  }));
+}
+
+export async function deleteReelComment(commentId: string): Promise<boolean> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+
+  if (!isMockMode()) {
+    try {
+      const { error } = await supabase
+        .from('video_comments')
+        .delete()
+        .eq('id', commentId)
+        .eq('user_id', user.id);
+      if (!error) return true;
+    } catch (e) {
+      console.warn('[Reels] Remote delete comment note:', e);
+    }
+  }
+
+  const comments = mockDb.getVideoComments();
+  const index = comments.findIndex((c: any) => c.id === commentId && c.user_id === user.id);
+  if (index >= 0) {
+    const videoId = comments[index].video_id;
+    comments.splice(index, 1);
+    mockDb.setVideoComments(comments);
+
+    const videos = mockDb.getVideos();
+    const updated = videos.map((v: any) => {
+      if (v.id === videoId) {
+        return { ...v, comment_count: Math.max(0, v.comment_count - 1) };
+      }
+      return v;
+    });
+    mockDb.setVideos(updated);
+    return true;
+  }
+  return false;
+}
+
+export async function fetchCreatorReels(userId: string): Promise<any[]> {
+  if (!isMockMode()) {
+    try {
+      const { data, error } = await supabase
+        .from('videos')
+        .select('*, user:profiles(id, username, display_name, avatar_url)')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+      if (!error && data) return data;
+    } catch (e) {
+      console.warn('[Reels] Remote fetch creator reels note:', e);
+    }
+  }
+
+  const videos = mockDb.getVideos();
+  const profiles = mockDb.getProfiles();
+  const author = profiles.find((p: any) => p.id === userId);
+  return videos
+    .filter((v: any) => v.user_id === userId)
+    .map((v: any) => ({
+      ...v,
+      user: author || { id: userId, username: 'creator', display_name: 'Creator' },
+    }));
+}
+
+export async function updateReelMetadata(
+  videoId: string,
+  updates: { caption?: string; hashtags?: string[]; visibility?: 'public' | 'private' }
+): Promise<any> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+
+  if (!isMockMode()) {
+    try {
+      const { data, error } = await supabase
+        .from('videos')
+        .update({
+          ...updates,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', videoId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+      if (!error && data) return data;
+    } catch (e) {
+      console.warn('[Reels] Remote update reel note:', e);
+    }
+  }
+
+  const videos = mockDb.getVideos();
+  let updatedVideo: any = null;
+  const updated = videos.map((v: any) => {
+    if (v.id === videoId && v.user_id === user.id) {
+      updatedVideo = { ...v, ...updates, updated_at: new Date().toISOString() };
+      return updatedVideo;
+    }
+    return v;
+  });
+  if (!updatedVideo) throw new Error('Reel not found or unauthorized');
+  mockDb.setVideos(updated);
+  return updatedVideo;
+}
+
+export async function deleteReel(videoId: string): Promise<boolean> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+
+  if (!isMockMode()) {
+    try {
+      const { error } = await supabase
+        .from('videos')
+        .delete()
+        .eq('id', videoId)
+        .eq('user_id', user.id);
+      if (!error) return true;
+    } catch (e) {
+      console.warn('[Reels] Remote delete reel note:', e);
+    }
+  }
+
+  const videos = mockDb.getVideos();
+  const index = videos.findIndex((v: any) => v.id === videoId && v.user_id === user.id);
+  if (index >= 0) {
+    videos.splice(index, 1);
+    mockDb.setVideos(videos);
+    return true;
+  }
+  return false;
+}
+
+export async function toggleReelSave(videoId: string): Promise<{ saved: boolean }> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (isMockMode()) {
+    const saves = mockDb.getVideoSaves();
+    const index = saves.findIndex((save: any) => save.user_id === user.id && save.video_id === videoId);
+    if (index >= 0) {
+      saves.splice(index, 1);
+      mockDb.setVideoSaves(saves);
+      return { saved: false };
+    }
+    saves.push({ id: `vsave_${Date.now()}`, user_id: user.id, video_id: videoId });
+    mockDb.setVideoSaves(saves);
+    return { saved: true };
+  }
+  const { data: existing, error: readError } = await supabase
+    .from('video_saves')
+    .select('id')
+    .eq('user_id', user.id)
+    .eq('video_id', videoId)
+    .maybeSingle();
+  if (readError) throw readError;
+  if (existing) {
+    const { error } = await supabase.from('video_saves').delete().eq('id', existing.id);
+    if (error) throw error;
+    return { saved: false };
+  }
+  const { error } = await supabase.from('video_saves').insert({ user_id: user.id, video_id: videoId });
+  if (error) throw error;
+  return { saved: true };
+}
+
+export async function shareReel(videoId: string, platform = 'direct'): Promise<void> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (isMockMode()) {
+    await trackVideoInteraction(videoId, 'share');
+    return;
+  }
+  const { error } = await supabase.from('video_shares').insert({
+    user_id: user.id,
+    video_id: videoId,
+    platform,
+  });
+  if (error) throw error;
+  await trackVideoInteraction(videoId, 'share');
 }
 
 export async function trackVideoInteraction(
@@ -3575,26 +4297,7 @@ export async function uploadReel(
   if (!user) throw new Error('Not authenticated');
 
   if (!isMockMode()) {
-    try {
-      const { data, error } = await supabase
-        .from('videos')
-        .insert({
-          user_id: user.id,
-          video_url: videoUrl,
-          thumbnail_url: thumbnailUrl,
-          caption,
-          hashtags,
-          interests,
-          duration,
-          visibility: 'public',
-          moderation_status: 'approved'
-        })
-        .select()
-        .single();
-      if (!error && data) return data;
-    } catch (e) {
-      console.warn('[Reels] Remote upload record creation failed', e);
-    }
+    throw new Error('Direct Reel publication is disabled. Upload the source file through createReelUploadJob.');
   }
 
   // Fallback
@@ -3620,6 +4323,174 @@ export async function uploadReel(
   };
   mockDb.setVideos([newVideo, ...videos]);
   return newVideo;
+}
+
+export interface ReelEditManifest {
+  version: 1;
+  clips: Array<{
+    path: string;
+    trimStart?: number;
+    trimEnd?: number;
+    speed?: number;
+    volume?: number;
+  }>;
+  filter?: 'none' | 'cyber_gold' | 'dark_neon' | 'cyber_mono' | 'vivid_contrast';
+  textOverlays?: Array<{
+    text: string;
+    start: number;
+    end: number;
+    x: number;
+    y: number;
+    color: string;
+    fontSize: number;
+  }>;
+  audio?: {
+    path?: string;
+    volume: number;
+  };
+  coverTimeSeconds?: number;
+}
+
+export interface ReelUploadJob {
+  jobId: string;
+  videoId: string;
+  rawVideoPath: string;
+  status: 'queued';
+}
+
+export interface ReelJobStatus {
+  id: string;
+  video_id: string | null;
+  status: 'queued' | 'processing' | 'completed' | 'failed';
+  attempts: number;
+  max_attempts: number;
+  error_log: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+function createClientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return uuidv4();
+}
+
+export async function createReelUploadJob(
+  file: Blob,
+  metadata: {
+    caption: string;
+    hashtags: string[];
+    interests: string[];
+    visibility: 'public' | 'private';
+    duration: number;
+    width?: number;
+    height?: number;
+    thumbnailPath?: string;
+    editManifest?: ReelEditManifest;
+  },
+  onProgress?: (progress: number) => void,
+): Promise<ReelUploadJob> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (file.size === 0) throw new Error('The selected video is empty.');
+  if (file.size > 200 * 1024 * 1024) throw new Error('Videos must be smaller than 200 MB.');
+  if (metadata.duration <= 0 || metadata.duration > 180) {
+    throw new Error('Reels must be between 1 second and 3 minutes long.');
+  }
+
+  if (isMockMode()) {
+    const videoId = createClientId();
+    const jobId = createClientId();
+    return { jobId, videoId, rawVideoPath: `mock/${user.id}/${videoId}.mp4`, status: 'queued' };
+  }
+
+  const videoId = createClientId();
+  const rawVideoPath = `${user.id}/${videoId}/source`;
+  onProgress?.(5);
+
+  const { error: uploadError } = await supabase.storage
+    .from('reels-ingest')
+    .upload(rawVideoPath, file, {
+      cacheControl: '3600',
+      contentType: file.type || 'video/mp4',
+      upsert: false,
+    });
+  if (uploadError) throw new Error(`Video upload failed: ${uploadError.message}`);
+  onProgress?.(70);
+
+  const { data, error: jobError } = await supabase
+    .from('media_jobs')
+    .insert({
+      video_id: videoId,
+      user_id: user.id,
+      raw_video_path: rawVideoPath,
+      status: 'queued',
+      metadata: {
+        ...metadata,
+        source_content_type: file.type || 'video/mp4',
+      },
+    })
+    .select('id, video_id, raw_video_path, status')
+    .single();
+
+  if (jobError || !data) {
+    await supabase.storage.from('reels-ingest').remove([rawVideoPath]);
+    throw new Error(`Could not queue video processing: ${jobError?.message || 'Unknown error'}`);
+  }
+  onProgress?.(75);
+  return {
+    jobId: data.id,
+    videoId: data.video_id,
+    rawVideoPath: data.raw_video_path,
+    status: data.status,
+  };
+}
+
+export async function getReelUploadJob(jobId: string): Promise<ReelJobStatus> {
+  const user = useAuthStore.getState().user;
+  if (!user) throw new Error('Not authenticated');
+  if (isMockMode()) {
+    return {
+      id: jobId,
+      video_id: null,
+      status: 'queued',
+      attempts: 0,
+      max_attempts: 3,
+      error_log: null,
+      metadata: {},
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
+  }
+
+  const { data, error } = await supabase
+    .from('media_jobs')
+    .select('id, video_id, status, attempts, max_attempts, error_log, metadata, created_at, updated_at')
+    .eq('id', jobId)
+    .eq('user_id', user.id)
+    .single();
+  if (error || !data) throw new Error(`Could not read video processing status: ${error?.message || 'Job not found'}`);
+  return data as ReelJobStatus;
+}
+
+export async function waitForReelPublication(
+  jobId: string,
+  options: { timeoutMs?: number; intervalMs?: number; onStatus?: (job: ReelJobStatus) => void } = {},
+): Promise<ReelJobStatus> {
+  const timeoutMs = options.timeoutMs ?? 10 * 60 * 1000;
+  const intervalMs = options.intervalMs ?? 2500;
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < timeoutMs) {
+    const job = await getReelUploadJob(jobId);
+    options.onStatus?.(job);
+    if (job.status === 'completed') return job;
+    if (job.status === 'failed') throw new Error(job.error_log || 'Video processing failed.');
+    await new Promise((resolve) => setTimeout(resolve, intervalMs));
+  }
+  throw new Error('Video processing timed out. You can retry from your drafts.');
 }
 
 // ----------------------------------------------------
@@ -3704,6 +4575,9 @@ export async function addComment(postId: string, content: string, parentId?: str
 
   if (!content || content.trim().length === 0) {
     throw new Error('Comment content cannot be empty');
+  }
+  if (content.trim().length > 2000) {
+    throw new Error('Comments must be 2,000 characters or fewer');
   }
 
   const online = await checkIsOnline();
@@ -4316,4 +5190,66 @@ export async function deleteNotification(id: string): Promise<boolean> {
 
 export * from './services/StoryService.js';
 
+// ----------------------------------------------------
+// BITCHAT-INSPIRED OFFLINE LOCAL PAIRING (ZERO-SERVER)
+// ----------------------------------------------------
 
+export function generateOfflinePairingUrl(user: UserProfile, myPublicKeyHex: string): string {
+  const params = new URLSearchParams({
+    id: user.id,
+    name: user.username || user.display_name || 'user',
+    pub: myPublicKeyHex,
+  });
+  return `jamsh-pair://v1?${params.toString()}`;
+}
+
+export function parseOfflinePairingUrl(pairingUrl: string): { userId: string; username: string; publicKey: string } | null {
+  try {
+    if (!pairingUrl || !pairingUrl.startsWith('jamsh-pair://v1?')) return null;
+    const queryString = pairingUrl.replace('jamsh-pair://v1?', '');
+    const params = new URLSearchParams(queryString);
+    const userId = params.get('id');
+    const username = params.get('name') || 'Peer';
+    const publicKey = params.get('pub');
+    if (!userId || !publicKey) return null;
+    return { userId, username, publicKey };
+  } catch (e) {
+    return null;
+  }
+}
+
+export function completeOfflinePairing(myUserId: string, peer: { userId: string; username: string; publicKey: string }): ChatRoom {
+  cachePublicKey(myUserId, peer.userId, peer.publicKey);
+
+  const existingRooms = mockDb.getChatRooms();
+  let room = existingRooms.find((r: any) => 
+    r.type === 'direct' && r.members && r.members.includes(peer.userId)
+  );
+
+  if (!room) {
+    const roomId = `room_offline_${peer.userId.substring(0, 8)}_${Date.now()}`;
+    room = {
+      id: roomId,
+      type: 'direct',
+      name: peer.username,
+      members: [myUserId, peer.userId],
+      created_at: new Date().toISOString(),
+      last_message_at: new Date().toISOString(),
+      last_message_preview: 'Offline paired via QR code',
+      peer: {
+        id: peer.userId,
+        username: peer.username,
+        display_name: peer.username,
+        avatar_url: null,
+      } as any,
+    };
+    mockDb.setChatRooms([room, ...existingRooms]);
+  }
+
+  const evt = new CustomEvent('nearbyPeerUpdate', { 
+    detail: { peerId: peer.userId, active: true, isOnline: false } 
+  });
+  if (typeof window !== 'undefined') window.dispatchEvent(evt);
+
+  return room;
+}
