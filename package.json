@@ -12,6 +12,7 @@
     "lint": "npm run lint --workspaces --if-present",
     "web:build": "npm run build --workspace @jamsh/web",
     "cap:sync": "npm run web:build && npx cap sync android",
+    "cap:sync:ios": "npm run web:build && npx cap sync ios",
     "cap:add:android": "npx cap add android",
     "cap:open:android": "npx cap open android",
     "android:build:debug": "cd android && gradlew.bat assembleDebug",
@@ -22,6 +23,7 @@
     "@capacitor/android": "^7.6.7",
     "@capacitor/cli": "^7.6.7",
     "@capacitor/core": "^7.6.7",
+    "@capacitor/ios": "^7.6.7",
     "pg": "^8.22.0",
     "react": "18.2.0",
     "react-dom": "18.2.0"

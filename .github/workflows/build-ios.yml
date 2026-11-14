@@ -1,0 +1,139 @@
+name: Build Native iOS IPA (Free Cloud CI)
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+      - feat/bitchat-ble-mesh
+    paths:
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'ios-custom/**'
+      - 'scripts/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - '.github/workflows/build-ios.yml'
+
+jobs:
+  build-ios-ipa:
+    name: Build Native iOS IPA (macOS Runner)
+    runs-on: macos-14
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Verify macOS & Toolchain Environment
+        run: |
+          echo "macOS Version:"
+          sw_vers
+          echo "Xcode Version:"
+          xcodebuild -version
+          echo "CocoaPods Version:"
+          pod --version
+          echo "Ruby Version:"
+          ruby -v
+
+      - name: Install Monorepo Dependencies
+        run: |
+          npm ci || npm install
+
+      - name: Build Monorepo Workspace Packages
+        run: |
+          npm run build -w packages/types --if-present
+          npm run build -w packages/shared --if-present
+          npm run build -w packages/encryption --if-present
+          npm run build -w packages/ui --if-present
+          npm run build -w packages/api --if-present
+
+      - name: Build Production Web App
+        run: |
+          npm run build -w apps/web
+
+      - name: Initialize or Restore Capacitor iOS Platform
+        run: |
+          if [ ! -f "ios/App/Podfile" ] || [ ! -d "ios/App/App.xcodeproj" ]; then
+            echo "==> Generating clean Capacitor iOS template..."
+            rm -rf ios
+            npx cap add ios
+          fi
+          
+          # Restore custom plugin files
+          mkdir -p ios/App/App
+          cp ios-custom/JamshNearbyPlugin.swift ios/App/App/
+          cp ios-custom/JamshNearbyPlugin.m ios/App/App/
+
+      - name: Sync Web Assets to iOS
+        run: |
+          npx cap sync ios
+
+      - name: Link JamshNearby Native Plugin into Xcode Target
+        run: |
+          ruby scripts/link_ios_plugin.rb
+
+      - name: Configure iOS Permissions & Bluetooth Background Modes
+        run: |
+          PLIST="ios/App/App/Info.plist"
+          echo "==> Configuring $PLIST for BLE Mesh & Offline Networking..."
+          
+          /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string 'JamSh'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName 'JamSh'" "$PLIST"
+          
+          # Bluetooth LE Permissions
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothAlwaysUsageDescription string 'JamSh uses Bluetooth for peer discovery and secure offline messaging.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NSBluetoothAlwaysUsageDescription 'JamSh uses Bluetooth for peer discovery and secure offline messaging.'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSBluetoothPeripheralUsageDescription string 'JamSh uses Bluetooth for peer discovery and secure offline messaging.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NSBluetoothPeripheralUsageDescription 'JamSh uses Bluetooth for peer discovery and secure offline messaging.'" "$PLIST"
+          
+          # Local Network & Discovery Permissions
+          /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string 'JamSh uses the local network to discover and exchange E2EE messages with nearby users without internet.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription 'JamSh uses the local network to discover and exchange E2EE messages with nearby users without internet.'" "$PLIST"
+          
+          # Location Permissions
+          /usr/libexec/PlistBuddy -c "Add :NSLocationWhenInUseUsageDescription string 'JamSh uses location for nearby device geofencing.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NSLocationWhenInUseUsageDescription 'JamSh uses location for nearby device geofencing.'" "$PLIST"
+          /usr/libexec/PlistBuddy -c "Add :NSLocationAlwaysAndWhenInUseUsageDescription string 'JamSh uses location for nearby device geofencing in background.'" "$PLIST" 2>/dev/null || /usr/libexec/PlistBuddy -c "Set :NSLocationAlwaysAndWhenInUseUsageDescription 'JamSh uses location for nearby device geofencing in background.'" "$PLIST"
+          
+          # Background Modes for BLE Mesh
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string 'bluetooth-central'" "$PLIST" 2>/dev/null || true
+          /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:1 string 'bluetooth-peripheral'" "$PLIST" 2>/dev/null || true
+          
+          echo "==> Info.plist configuration complete."
+
+      - name: CocoaPods Dependency Resolution
+        run: |
+          cd ios/App
+          pod install --repo-update || pod install
+
+      - name: Build Unsigned Release Archive (.xcarchive)
+        run: |
+          xcodebuild \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -archivePath build/App.xcarchive \
+            archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=""
+
+      - name: Package Native IPA
+        run: |
+          mkdir -p Payload
+          cp -r build/App.xcarchive/Products/Applications/App.app Payload/
+          zip -r -y JamSh.ipa Payload
+          echo "==> Native JamSh.ipa successfully generated:"
+          ls -lh JamSh.ipa
+
+      - name: Upload JamSh Native IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: JamSh-iOS-Native-IPA
+          path: JamSh.ipa
+          retention-days: 14
