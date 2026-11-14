@@ -7,6 +7,7 @@ import {
   Modal,
   StyleSheet,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
 import {
   QrCode,
@@ -145,6 +146,7 @@ export const OfflinePairingModal: React.FC<OfflinePairingModalProps> = ({
             </TouchableOpacity>
           </View>
 
+          <ScrollView style={{ width: '100%' }} contentContainerStyle={{ paddingBottom: 8 }} showsVerticalScrollIndicator={false}>
           {/* Tab 1: My Pairing Code */}
           {activeTab === 'my_code' && (
             <View style={styles.contentSection}>
@@ -227,6 +229,7 @@ export const OfflinePairingModal: React.FC<OfflinePairingModalProps> = ({
               </View>
             </View>
           )}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -239,14 +242,17 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
+    paddingTop: 'max(env(safe-area-inset-top, 0px), 16px)' as any,
+    paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 16px)' as any,
   },
   dialog: {
     width: '100%',
     maxWidth: 420,
+    maxHeight: '90%' as any,
     backgroundColor: '#121212',
     borderRadius: 20,
-    padding: 24,
+    padding: 20,
     borderWidth: 1,
     borderColor: '#262626',
     shadowColor: '#000000',
@@ -445,3 +451,4 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 });
+

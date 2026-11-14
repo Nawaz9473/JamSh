@@ -329,7 +329,7 @@ export const InstagramInboxView: React.FC<InstagramInboxViewProps> = ({
 
       {/* SEARCH MODE VIEW */}
       {isSearching ? (
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 24 }}>
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: isMobile ? ('calc(env(safe-area-inset-bottom, 0px) + 84px)' as any) : 24 }}>
           {/* Section 1: CONVERSATIONS */}
           {filteredConversations.length > 0 && (
             <View style={{ marginBottom: 16 }}>
