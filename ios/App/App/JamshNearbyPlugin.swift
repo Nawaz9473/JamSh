@@ -3,6 +3,7 @@ import Capacitor
 import CoreBluetooth
 import CoreLocation
 import SQLite3
+import Network
 
 @objc(JamshNearbyPlugin)
 public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeripheralManagerDelegate, CLLocationManagerDelegate {
@@ -27,6 +28,18 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     private var discoveredPeripherals: [String: CBPeripheral] = [:]
     private var pendingAcks: [String: String] = [:]
     
+    // Incoming chunk reassembly dictionary: senderUUID -> (messageId, totalChunks, collectedChunks)
+    private var incomingChunks: [String: [Int: Data]] = [:]
+    private var incomingTotalChunks: [String: Int] = [:]
+    
+    // Active send state for chunked writes: peripheralUUID -> (call, chunks, currentIndex, writeChar)
+    private var activeSends: [String: (call: CAPPluginCall, chunks: [Data], currentIndex: Int, writeChar: CBCharacteristic?)] = [:]
+    
+    // Network Path Monitor
+    private let pathMonitor = NWPathMonitor()
+    private let networkQueue = DispatchQueue(label: "JamshNetworkMonitor")
+    private var isNetworkConnected = true
+    
     // CoreLocation
     private var locationManager: CLLocationManager?
     private var lastKnownLatitude: Double = 0.0
@@ -40,9 +53,13 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
         initDatabase()
         setupConnectivityListener()
         
-        // Initialize managers
-        centralManager = CBCentralManager(delegate: self, queue: nil)
-        peripheralManager = CBPeripheralManager(delegate: self, queue: nil)
+        // Initialize CoreBluetooth managers
+        centralManager = CBCentralManager(delegate: self, queue: nil, options: [
+            CBCentralManagerOptionRestoreIdentifierKey: "JamshCentralRestoreKey"
+        ])
+        peripheralManager = CBPeripheralManager(delegate: self, queue: nil, options: [
+            CBPeripheralManagerOptionRestoreIdentifierKey: "JamshPeripheralRestoreKey"
+        ])
         
         // Initialize Location
         locationManager = CLLocationManager()
@@ -160,7 +177,7 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     // -----------------------------------------------------------------
     
     public func centralManagerDidUpdateState(_ central: CBCentralManager) {
-        print("[Nearby] Central Manager status updated to: \(central.state.rawValue)")
+        print("[Nearby iOS] Central Manager status: \(central.state.rawValue)")
     }
     
     public func peripheralManagerDidUpdateState(_ peripheral: CBPeripheralManager) {
@@ -198,19 +215,18 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
         
         stopAdvertisingInternal()
         
-        let isOnline = pathMonitor.currentPath.status == .satisfied
-        let activeDiscoveryPayload = "\(discoveryId)|\(isOnline ? "1" : "0")"
-        
-        if let payloadData = activeDiscoveryPayload.data(using: .utf8) {
-            isAdvertising = true
-            peripheralManager?.startAdvertising([
-                CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
-                CBAdvertisementDataLocalNameKey: activeDiscoveryPayload
-            ])
-            call.resolve()
-        } else {
-            call.reject("Failed to encode payload")
+        // Ensure compact payload fits in legacy 31-byte advertising packet
+        var activeDiscoveryPayload = "\(discoveryId)|\(isNetworkConnected ? "1" : "0")"
+        if activeDiscoveryPayload.count > 10 {
+            activeDiscoveryPayload = String(activeDiscoveryPayload.prefix(10))
         }
+        
+        isAdvertising = true
+        peripheralManager?.startAdvertising([
+            CBAdvertisementDataServiceUUIDsKey: [serviceUUID],
+            CBAdvertisementDataLocalNameKey: activeDiscoveryPayload
+        ])
+        call.resolve()
     }
     
     @objc func stopAdvertising(_ call: CAPPluginCall) {
@@ -226,7 +242,9 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     @objc func startScanning(_ call: CAPPluginCall) {
         stopScanningInternal()
         isScanning = true
-        centralManager?.scanForPeripherals(withServices: [serviceUUID], options: [CBCentralManagerScanOptionAllowDuplicatesKey: false])
+        centralManager?.scanForPeripherals(withServices: [serviceUUID], options: [
+            CBCentralManagerScanOptionAllowDuplicatesKey: false
+        ])
         call.resolve()
     }
     
@@ -242,8 +260,6 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     
     public func centralManager(_ central: CBCentralManager, didDiscover peripheral: CBPeripheral, advertisementData: [String : Any], rssi NSNumber) {
         let name = advertisementData[CBAdvertisementDataLocalNameKey] as? String ?? ""
-        if name.isEmpty { return }
-        
         let mac = peripheral.identifier.uuidString
         discoveredPeripherals[mac] = peripheral
         
@@ -265,81 +281,127 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     }
     
     // -----------------------------------------------------------------
-    // GATT SERVER CALLBACKS (RECEIVE & AKNOWLEDGEMENT HANDLING)
+    // GATT SERVER CALLBACKS (RECEIVE & FRAGMENT REASSEMBLY)
     // -----------------------------------------------------------------
     
     public func peripheralManager(_ peripheral: CBPeripheralManager, didReceiveWrite requests: [CBATTRequest]) {
         for request in requests {
             if request.characteristic.uuid == characteristicWriteUUID, let data = request.value {
-                do {
-                    guard let envelope = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-                          let msgId = envelope["id"] as? String,
-                          let originLat = envelope["origin_lat"] as? Double,
-                          let originLng = envelope["origin_lng"] as? Double,
-                          let roomId = envelope["room_id"] as? String,
-                          let recipientId = envelope["recipient_id"] as? String else {
-                        peripheral.respond(to: request, withResult: .invalidAttributeValueLength)
-                        return
+                let centralId = request.central.identifier.uuidString
+                var completeData: Data? = nil
+                
+                // Inspect framing: chunked or unchunked
+                if data.count >= 2 && data[0] != 0x7B { // Not raw JSON '{'
+                    let chunkIndex = Int(data[0])
+                    let totalChunks = Int(data[1])
+                    let chunkPayload = data.subdata(in: 2..<data.count)
+                    
+                    if incomingChunks[centralId] == nil {
+                        incomingChunks[centralId] = [:]
+                        incomingTotalChunks[centralId] = totalChunks
                     }
+                    incomingChunks[centralId]?[chunkIndex] = chunkPayload
                     
-                    let relayRadius = envelope["relay_radius"] as? Double ?? 5000.0
-                    let envelopeJson = String(data: data, encoding: .utf8) ?? ""
-                    
-                    // 1. Duplicate Packet Suppression
-                    if isMessageDuplicate(msgId) {
-                        peripheral.respond(to: request, withResult: .success)
-                        return
-                    }
-                    markMessageSeen(msgId)
-                    
-                    // 2. Geofence Boundary Enforcement
-                    let dist = calculateDistance(lat1: lastKnownLatitude, lon1: lastKnownLongitude, lat2: originLat, lon2: originLng)
-                    if dist > relayRadius {
-                        peripheral.respond(to: request, withResult: .success)
-                        return
-                    }
-                    
-                    // 3. Routing Decisions
-                    let defaults = UserDefaults.standard
-                    let myUserId = defaults.string(forKey: "user_id") ?? ""
-                    
-                    if recipientId == myUserId {
-                        notifyListeners("messageReceived", data: [
-                            "connectionId": request.central.identifier.uuidString,
-                            "envelope": envelope
-                        ])
-                    } else {
-                        // Carry-Forward Relay Cache inside SQLite
-                        insertRelayMessage(messageId: msgId, roomId: roomId, recipientId: recipientId, envelopeJson: envelopeJson, lat: originLat, lng: originLng, radius: relayRadius)
-                        
-                        if pathMonitor.currentPath.status == .satisfied {
-                            notifyListeners("relayUploadTrigger", data: [
-                                "messageId": msgId,
-                                "roomId": roomId,
-                                "recipientId": recipientId,
-                                "envelope": envelope
-                            ])
+                    if let collected = incomingChunks[centralId], collected.count == totalChunks {
+                        var combined = Data()
+                        for i in 0..<totalChunks {
+                            if let c = collected[i] {
+                                combined.append(c)
+                            }
                         }
+                        incomingChunks.removeValue(forKey: centralId)
+                        incomingTotalChunks.removeValue(forKey: centralId)
+                        completeData = combined
                     }
-                    
-                    // Cache ACK response
-                    let ack: [String: Any] = [
-                        "protocol_version": "1.0",
-                        "message_id": msgId,
-                        "ack_status": "SUCCESS",
-                        "signature": "sig_mesh_verified"
-                    ]
-                    if let ackData = try? JSONSerialization.data(withJSONObject: ack, options: []), let ackStr = String(data: ackData, encoding: .utf8) {
-                        pendingAcks[request.central.identifier.uuidString] = ackStr
-                    }
-                    
-                    peripheral.respond(to: request, withResult: .success)
-                } catch {
-                    peripheral.respond(to: request, withResult: .unlikelyError)
+                } else {
+                    completeData = data
                 }
+                
+                if let fullData = completeData {
+                    handleCompleteMessageReceived(fullData, centralId: centralId)
+                }
+                
+                peripheral.respond(to: request, withResult: .success)
             } else {
                 peripheral.respond(to: request, withResult: .requestNotSupported)
             }
+        }
+    }
+    
+    private func handleCompleteMessageReceived(_ data: Data, centralId: String) {
+        do {
+            guard let envelope = try JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+                  let msgId = envelope["id"] as? String,
+                  let originLat = envelope["origin_lat"] as? Double ?? (envelope["origin_lat"] as? NSNumber)?.doubleValue,
+                  let originLng = envelope["origin_lng"] as? Double ?? (envelope["origin_lng"] as? NSNumber)?.doubleValue,
+                  let roomId = envelope["room_id"] as? String,
+                  let recipientId = envelope["recipient_id"] as? String else {
+                return
+            }
+            
+            let relayRadius = (envelope["relay_radius"] as? Double) ?? 5000.0
+            let hopCount = (envelope["hop_count"] as? Int) ?? 0
+            let maxHops = (envelope["max_hops"] as? Int) ?? 8
+            
+            if hopCount > maxHops { return }
+            
+            // 1. Seen packet duplicate suppression
+            if isMessageDuplicate(msgId) {
+                return
+            }
+            markMessageSeen(msgId)
+            
+            // 2. Geofence radius validation
+            let dist = calculateDistance(lat1: lastKnownLatitude, lon1: lastKnownLongitude, lat2: originLat, lon2: originLng)
+            if dist > relayRadius { return }
+            
+            // 3. Target vs Relay Routing
+            let myUserId = UserDefaults.standard.string(forKey: "user_id") ?? ""
+            
+            if recipientId == myUserId || recipientId == "group" {
+                notifyListeners("messageReceived", data: [
+                    "connectionId": centralId,
+                    "envelope": envelope
+                ])
+            } else {
+                // Multi-hop mesh relay: store locally
+                var mutableEnvelope = envelope
+                mutableEnvelope["hop_count"] = hopCount + 1
+                let relayedData = try JSONSerialization.data(withJSONObject: mutableEnvelope, options: [])
+                let relayedStr = String(data: relayedData, encoding: .utf8) ?? ""
+                
+                insertRelayMessage(messageId: msgId, roomId: roomId, recipientId: recipientId, envelopeJson: relayedStr, lat: originLat, lng: originLng, radius: relayRadius)
+                
+                // Notify JS layer of relay packet arrival
+                notifyListeners("relayMessageReceived", data: [
+                    "messageId": msgId,
+                    "envelope": mutableEnvelope
+                ])
+                
+                // If online, immediately upload to Supabase cloud
+                if isNetworkConnected {
+                    notifyListeners("relayUploadTrigger", data: [
+                        "messageId": msgId,
+                        "roomId": roomId,
+                        "recipientId": recipientId,
+                        "envelope": mutableEnvelope
+                    ])
+                }
+            }
+            
+            // Pre-cache preliminary ACK in case client reads immediately
+            let defaultAck: [String: Any] = [
+                "protocol_version": "1.0",
+                "message_id": msgId,
+                "ack_status": "SUCCESS",
+                "authenticated": false
+            ]
+            if let ackData = try? JSONSerialization.data(withJSONObject: defaultAck, options: []),
+               let ackStr = String(data: ackData, encoding: .utf8) {
+                pendingAcks[centralId] = ackStr
+            }
+        } catch {
+            print("[Nearby iOS] Failed to parse complete envelope: \(error)")
         }
     }
     
@@ -354,26 +416,50 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     }
     
     @objc func respondToEnvelope(_ call: CAPPluginCall) {
+        let connectionId = call.getString("connectionId") ?? ""
+        if let ackObj = call.getObject("ack"),
+           let ackData = try? JSONSerialization.data(withJSONObject: ackObj, options: []),
+           let ackStr = String(data: ackData, encoding: .utf8) {
+            pendingAcks[connectionId] = ackStr
+        }
         call.resolve()
     }
     
     // -----------------------------------------------------------------
-    // GATT CLIENT CALLS (SEND ENVELOPE IMPLEMENTATION)
+    // GATT CLIENT CALLS (CHUNKED SEND ENVELOPE)
     // -----------------------------------------------------------------
     
     @objc func sendEnvelope(_ call: CAPPluginCall) {
-        guard let ip = call.getString("ip"), // UUID string of peripheral
-              let envelope = call.getObject("envelope") else {
-            call.reject("ip and envelope are required")
+        guard let ip = call.getString("ip"),
+              let envelope = call.getObject("envelope"),
+              let peripheral = discoveredPeripherals[ip] else {
+            call.reject("ip and envelope are required, peripheral must be discovered")
             return
         }
         
-        guard let peripheral = discoveredPeripherals[ip] else {
-            call.reject("Peripheral device not found: \(ip)")
+        guard let rawData = try? JSONSerialization.data(withJSONObject: envelope, options: []) else {
+            call.reject("Failed to serialize envelope")
             return
         }
         
-        pendingSendCalls[ip] = call
+        // Chunk envelope into fragments <= 380 bytes
+        var chunks: [Data] = []
+        let chunkSize = 380
+        let totalCount = Int(ceil(Double(rawData.count) / Double(chunkSize)))
+        
+        for i in 0..<totalCount {
+            let start = i * chunkSize
+            let end = min(rawData.count, start + chunkSize)
+            let chunkSlice = rawData.subdata(in: start..<end)
+            
+            var framedChunk = Data()
+            framedChunk.append(UInt8(i))
+            framedChunk.append(UInt8(totalCount))
+            framedChunk.append(chunkSlice)
+            chunks.append(framedChunk)
+        }
+        
+        activeSends[ip] = (call: call, chunks: chunks, currentIndex: 0, writeChar: nil)
         centralManager?.connect(peripheral, options: nil)
     }
     
@@ -384,8 +470,8 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
     
     public func centralManager(_ central: CBCentralManager, didFailToConnect peripheral: CBPeripheral, error: Error?) {
         let uuid = peripheral.identifier.uuidString
-        if let call = pendingSendCalls.removeValue(forKey: uuid) {
-            call.reject("Failed to connect to peripheral: \(error?.localizedDescription ?? "unknown")")
+        if let sendState = activeSends.removeValue(forKey: uuid) {
+            sendState.call.reject("Connection to peer failed: \(error?.localizedDescription ?? "unknown")")
         }
     }
 }
@@ -396,19 +482,18 @@ public class JamshNearbyPlugin: CAPPlugin, CBCentralManagerDelegate, CBPeriphera
 extension JamshNearbyPlugin: CBPeripheralDelegate {
     
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: Error?) {
+        let uuid = peripheral.identifier.uuidString
         if let error = error {
-            let uuid = peripheral.identifier.uuidString
-            if let call = pendingSendCalls.removeValue(forKey: uuid) {
-                call.reject("Service discovery failed: \(error.localizedDescription)")
+            if let sendState = activeSends.removeValue(forKey: uuid) {
+                sendState.call.reject("Service discovery failed: \(error.localizedDescription)")
                 centralManager?.cancelPeripheralConnection(peripheral)
             }
             return
         }
         
         guard let service = peripheral.services?.first(where: { $0.uuid == serviceUUID }) else {
-            let uuid = peripheral.identifier.uuidString
-            if let call = pendingSendCalls.removeValue(forKey: uuid) {
-                call.reject("JamSh custom BLE service not found")
+            if let sendState = activeSends.removeValue(forKey: uuid) {
+                sendState.call.reject("JamSh custom BLE service not found on peer")
                 centralManager?.cancelPeripheralConnection(peripheral)
             }
             return
@@ -419,77 +504,88 @@ extension JamshNearbyPlugin: CBPeripheralDelegate {
     
     public func peripheral(_ peripheral: CBPeripheral, didDiscoverCharacteristicsFor service: CBService, error: Error?) {
         let uuid = peripheral.identifier.uuidString
-        guard let call = pendingSendCalls[uuid] else {
+        guard var sendState = activeSends[uuid] else {
             centralManager?.cancelPeripheralConnection(peripheral)
             return
         }
         
         if let error = error {
-            call.reject("Characteristics discovery failed: \(error.localizedDescription)")
-            pendingSendCalls.removeValue(forKey: uuid)
+            sendState.call.reject("Characteristic discovery failed: \(error.localizedDescription)")
+            activeSends.removeValue(forKey: uuid)
             centralManager?.cancelPeripheralConnection(peripheral)
             return
         }
         
-        guard let writeChar = service.characteristics?.first(where: { $0.uuid == characteristicWriteUUID }),
-              let envelope = call.getObject("envelope"),
-              let data = try? JSONSerialization.data(withJSONObject: envelope, options: []) else {
-            call.reject("Write characteristic or envelope not found")
-            pendingSendCalls.removeValue(forKey: uuid)
+        guard let writeChar = service.characteristics?.first(where: { $0.uuid == characteristicWriteUUID }) else {
+            sendState.call.reject("Write characteristic missing")
+            activeSends.removeValue(forKey: uuid)
             centralManager?.cancelPeripheralConnection(peripheral)
             return
         }
         
-        // Write envelope
-        peripheral.writeValue(data, for: writeChar, type: .withResponse)
+        sendState.writeChar = writeChar
+        activeSends[uuid] = sendState
+        
+        // Write first chunk
+        let firstChunk = sendState.chunks[0]
+        peripheral.writeValue(firstChunk, for: writeChar, type: .withResponse)
     }
     
     public func peripheral(_ peripheral: CBPeripheral, didWriteValueFor characteristic: CBCharacteristic, error: Error?) {
         let uuid = peripheral.identifier.uuidString
-        guard let call = pendingSendCalls[uuid] else {
+        guard var sendState = activeSends[uuid] else {
             centralManager?.cancelPeripheralConnection(peripheral)
             return
         }
         
         if let error = error {
-            call.reject("Write envelope value failed: \(error.localizedDescription)")
-            pendingSendCalls.removeValue(forKey: uuid)
+            sendState.call.reject("GATT write failed: \(error.localizedDescription)")
+            activeSends.removeValue(forKey: uuid)
             centralManager?.cancelPeripheralConnection(peripheral)
             return
         }
         
-        guard let readChar = characteristic.service?.characteristics?.first(where: { $0.uuid == characteristicReadUUID }) else {
-            call.reject("Read characteristic not found")
-            pendingSendCalls.removeValue(forKey: uuid)
-            centralManager?.cancelPeripheralConnection(peripheral)
-            return
+        let nextIndex = sendState.currentIndex + 1
+        if nextIndex < sendState.chunks.count {
+            sendState.currentIndex = nextIndex
+            activeSends[uuid] = sendState
+            let nextChunk = sendState.chunks[nextIndex]
+            if let writeChar = sendState.writeChar {
+                peripheral.writeValue(nextChunk, for: writeChar, type: .withResponse)
+            }
+        } else {
+            // All chunks written! Now read ACK back
+            if let readChar = characteristic.service?.characteristics?.first(where: { $0.uuid == characteristicReadUUID }) {
+                peripheral.readValue(for: readChar)
+            } else {
+                sendState.call.reject("Read ACK characteristic not found")
+                activeSends.removeValue(forKey: uuid)
+                centralManager?.cancelPeripheralConnection(peripheral)
+            }
         }
-        
-        // Read ACK back
-        peripheral.readValue(for: readChar)
     }
     
     public func peripheral(_ peripheral: CBPeripheral, didUpdateValueFor characteristic: CBCharacteristic, error: Error?) {
         let uuid = peripheral.identifier.uuidString
         defer {
-            pendingSendCalls.removeValue(forKey: uuid)
+            activeSends.removeValue(forKey: uuid)
             centralManager?.cancelPeripheralConnection(peripheral)
         }
         
-        guard let call = pendingSendCalls[uuid] else { return }
+        guard let sendState = activeSends[uuid] else { return }
         
         if let error = error {
-            call.reject("Read ACK value failed: \(error.localizedDescription)")
+            sendState.call.reject("Read ACK failed: \(error.localizedDescription)")
             return
         }
         
         guard let data = characteristic.value,
               let ack = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-            call.reject("Failed to parse ACK envelope data")
+            sendState.call.reject("Failed to parse peer response ACK")
             return
         }
         
-        call.resolve(["ack": ack])
+        sendState.call.resolve(["ack": ack])
     }
 }
 
@@ -580,7 +676,6 @@ extension JamshNearbyPlugin {
     @objc func getPendingMessages(_ call: CAPPluginCall) {
         var list: [[String: Any]] = []
         
-        // Fetch original pending outgoing queue
         let query = "SELECT message_id, room_id, recipient_id, envelope_json FROM message_queue;"
         var statement: OpaquePointer?
         if sqlite3_prepare_v2(db, query, -1, &statement, nil) == SQLITE_OK {
@@ -599,7 +694,7 @@ extension JamshNearbyPlugin {
         }
         sqlite3_finalize(statement)
         
-        // Fetch relay queue
+        // Append relay mesh cache
         let queryRelay = "SELECT message_id, room_id, recipient_id, envelope_json FROM ble_mesh_queue;"
         var statementRelay: OpaquePointer?
         if sqlite3_prepare_v2(db, queryRelay, -1, &statementRelay, nil) == SQLITE_OK {
@@ -632,6 +727,29 @@ extension JamshNearbyPlugin {
         sqlite3_exec(db, "DELETE FROM ble_mesh_queue WHERE message_id = '\(messageId)';", nil, nil, nil)
         call.resolve()
     }
+    
+    @objc func forwardPendingRelays(_ call: CAPPluginCall) {
+        // Forward pending relay messages to all currently discovered BLE peripherals
+        var count = 0
+        let queryRelay = "SELECT message_id, envelope_json FROM ble_mesh_queue;"
+        var statementRelay: OpaquePointer?
+        if sqlite3_prepare_v2(db, queryRelay, -1, &statementRelay, nil) == SQLITE_OK {
+            while sqlite3_step(statementRelay) == SQLITE_ROW {
+                let msgId = String(cString: sqlite3_column_text(statementRelay, 0))
+                let envelopeJson = String(cString: sqlite3_column_text(statementRelay, 1))
+                if let data = envelopeJson.data(using: .utf8),
+                   let envelope = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] {
+                    notifyListeners("forwardRelayToPeers", data: [
+                        "messageId": msgId,
+                        "envelope": envelope
+                    ])
+                    count += 1
+                }
+            }
+        }
+        sqlite3_finalize(statementRelay)
+        call.resolve(["forwardedCount": count])
+    }
 }
 
 // -----------------------------------------------------------------
@@ -640,21 +758,21 @@ extension JamshNearbyPlugin {
 extension JamshNearbyPlugin {
     
     @objc func getConnectivityStatus(_ call: CAPPluginCall) {
-        let isConnected = pathMonitor.currentPath.status == .satisfied
         call.resolve([
-            "connected": isConnected,
-            "type": isConnected ? "online" : "offline"
+            "connected": isNetworkConnected,
+            "type": isNetworkConnected ? "online" : "offline"
         ])
     }
     
     private func setupConnectivityListener() {
         pathMonitor.pathUpdateHandler = { [weak self] path in
             let isConnected = path.status == .satisfied
+            self?.isNetworkConnected = isConnected
             self?.notifyListeners("connectivityChanged", data: [
                 "connected": isConnected,
                 "type": isConnected ? "online" : "offline"
             ])
         }
-        pathMonitor.start(queue: queue)
+        pathMonitor.start(queue: networkQueue)
     }
 }

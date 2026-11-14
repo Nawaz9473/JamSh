@@ -413,7 +413,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     position: 'absolute',
-    top: 16,
+    top: 'max(env(safe-area-inset-top, 0px), 16px)' as any,
     left: 0,
     right: 0,
     paddingHorizontal: 16,
@@ -480,7 +480,7 @@ const styles = StyleSheet.create({
   },
   bottomBar: {
     position: 'absolute',
-    bottom: 24,
+    bottom: 'max(env(safe-area-inset-bottom, 0px), 24px)' as any,
     left: 0,
     right: 0,
     paddingHorizontal: 16,
@@ -538,7 +538,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
     padding: 20,
-    maxHeight: SCREEN_HEIGHT * 0.5,
+    maxHeight: '60%',
   },
   sheetHeader: {
     flexDirection: 'row',

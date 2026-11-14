@@ -18,6 +18,9 @@ import { StoryPlayer } from './components/stories/StoryPlayer';
 import { InstagramInboxView } from './components/messaging/InstagramInboxView';
 import { InstagramChatWindow } from './components/messaging/InstagramChatWindow';
 import { StoryService } from '@jamsh/api';
+import { WebReelsView } from './components/reels/WebReelsView';
+import { WebCreateReelModal } from './components/reels/WebCreateReelModal';
+import { useResponsive } from './hooks/useResponsive';
 import {
   useAuthStore,
   supabase,
@@ -45,6 +48,7 @@ import {
   forgotPassword,
   updatePassword,
   signInWithGoogle,
+  completeGoogleProfile,
   sendPhoneOtp,
   verifyPhoneOtp,
   setupAuthListener,
@@ -80,7 +84,12 @@ import {
   markAllNotificationsAsRead,
   deleteNotification,
   fetchFollowers,
-  fetchFollowing
+  fetchFollowing,
+  fetchPendingFollowRequests,
+  respondToFollowRequest,
+  syncOfflineQueue,
+  uploadPostImage,
+  removePostMedia
 } from '@jamsh/api';
 import { generateKeyPair, encryptPairwise } from '@jamsh/encryption';
 import { Capacitor } from '@capacitor/core';
@@ -122,7 +131,14 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 
+type WebPostDraftImage = {
+  file: File;
+  processed: Blob;
+  previewUrl: string;
+};
+
 import { getDisplayName, formatThunderCount, timeAgo } from '@jamsh/shared';
+import { processWebPostImage, WebPostEditOptions } from './features/create/processWebPostImage';
 
 // Theme config matching Instagram Web Dark Mode
 const instagramTheme = {
@@ -168,13 +184,13 @@ const JamshLogo = () => (
   </View>
 );
 
-const JamshLoginHeader = () => (
-  <View style={{ alignItems: 'center', marginBottom: 24, width: '100%' }}>
+const JamshLoginHeader = ({ isCompact = false }: { isCompact?: boolean }) => (
+  <View style={{ alignItems: 'center', marginBottom: isCompact ? 10 : 20, width: '100%' }}>
     {/* Glowing Logo Container */}
     <View style={{
-      width: 80,
-      height: 80,
-      borderRadius: 24,
+      width: isCompact ? 54 : 76,
+      height: isCompact ? 54 : 76,
+      borderRadius: isCompact ? 18 : 22,
       borderWidth: 1.5,
       borderColor: '#F59A18',
       justifyContent: 'center',
@@ -185,16 +201,16 @@ const JamshLoginHeader = () => (
       shadowOffset: { width: 0, height: 0 },
       shadowOpacity: 0.8,
       shadowRadius: 15,
-      marginBottom: 20,
+      marginBottom: isCompact ? 10 : 16,
     } as any}>
       {/* @ts-ignore */}
       <img
         src="logo.jpg"
         alt="Jamsh Logo"
         style={{
-          width: '74px',
-          height: '74px',
-          borderRadius: '20px',
+          width: isCompact ? '48px' : '70px',
+          height: isCompact ? '48px' : '70px',
+          borderRadius: isCompact ? '16px' : '18px',
           objectFit: 'cover',
         }}
       />
@@ -204,10 +220,10 @@ const JamshLoginHeader = () => (
     <Text style={{
       color: '#FFFFFF',
       fontFamily: 'Outfit, Sora, sans-serif',
-      fontSize: 28,
+      fontSize: isCompact ? 22 : 28,
       fontWeight: '900',
       letterSpacing: 1.5,
-      marginBottom: 12,
+      marginBottom: isCompact ? 6 : 10,
       textAlign: 'center',
     }}>
       JAMSH
@@ -217,10 +233,10 @@ const JamshLoginHeader = () => (
     <Text style={{
       color: '#A8A8A8',
       fontFamily: 'Manrope, Inter, sans-serif',
-      fontSize: 13,
+      fontSize: isCompact ? 12 : 13,
       textAlign: 'center',
-      lineHeight: 18,
-      marginBottom: 20,
+      lineHeight: isCompact ? 16 : 18,
+      marginBottom: isCompact ? 8 : 16,
       maxWidth: 280,
     }}>
       Encrypted signals, live channels & vlogs.{"\n"}One dark pulse.
@@ -234,10 +250,10 @@ const JamshLoginHeader = () => (
       borderWidth: 1,
       borderColor: 'rgba(245, 154, 24, 0.25)',
       borderRadius: 16,
-      paddingVertical: 6,
+      paddingVertical: isCompact ? 4 : 6,
       paddingHorizontal: 12,
       gap: 6,
-      marginBottom: 16,
+      marginBottom: isCompact ? 10 : 16,
     }}>
       <Shield size={12} color="#F59A18" fill="rgba(245, 154, 24, 0.1)" />
       <Text style={{
@@ -610,17 +626,30 @@ function NotificationsCenter() {
 }
 
 export default function App() {
-  const { width } = useWindowDimensions();
-  const isMobile = width < 768;
+  const {
+    width,
+    height,
+    isMobile,
+    isSmallMobile,
+    isTablet,
+    isDesktop,
+    isLandscape,
+    isShortScreen,
+    safeAreaTop,
+    safeAreaBottom,
+    safeAreaLeft,
+    safeAreaRight,
+  } = useResponsive();
 
   const [activeTab, setActiveTab] = useState<'feed' | 'search' | 'shorts' | 'messages' | 'profile' | 'live' | 'admin' | 'notifications'>('feed');
   const [selectedCategory, setSelectedCategory] = useState<'For you' | 'Nearby' | 'Vlogs' | 'Vault'>('For you');
-  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'forgot_password' | 'phone_otp' | 'update_password'>('login');
+  const [authMode, setAuthMode] = useState<'login' | 'signup' | 'google_setup' | 'forgot_password' | 'phone_otp' | 'update_password'>('login');
   const [authError, setAuthError] = useState('');
 
   // Auth states
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState('');
   const [usernameInput, setUsernameInput] = useState('');
   const [fullNameInput, setFullNameInput] = useState('');
   const [birthMonth, setBirthMonth] = useState('');
@@ -631,16 +660,17 @@ export default function App() {
   const [otpSent, setOtpSent] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [followModalVisible, setFollowModalVisible] = useState(false);
-  const [followModalTitle, setFollowModalTitle] = useState<'Followers' | 'Following'>('Followers');
+  const [followModalTitle, setFollowModalTitle] = useState<'Followers' | 'Following' | 'Follow requests'>('Followers');
   const [followModalUsers, setFollowModalUsers] = useState<any[]>([]);
   const [isLoadingFollowModal, setIsLoadingFollowModal] = useState(false);
+  const [followRequestBusyId, setFollowRequestBusyId] = useState<string | null>(null);
 
   // Setup Auth state listener on mount for auto login / session persistence
   useEffect(() => {
     const unsubscribe = setupAuthListener();
 
     // Check if user landed from a password recovery link
-    if (window.location.hash.includes('type=recovery') || window.location.hash.includes('access_token')) {
+    if (window.location.hash.includes('type=recovery')) {
       setAuthMode('update_password');
     }
 
@@ -649,7 +679,10 @@ export default function App() {
     };
   }, []);
   // Zustand state refs
-  const { user, profile, deviceKeyPair, logout } = useAuthStore();
+  const { user, profile, authSetupRequired, deviceKeyPair, logout } = useAuthStore();
+  useEffect(() => {
+    if (authSetupRequired) setAuthMode('google_setup');
+  }, [authSetupRequired]);
 
   const [unreadCounts, setUnreadCounts] = useState({ messages: 0, notifications: 0, communities: 0, requests: 0 });
 
@@ -750,7 +783,34 @@ export default function App() {
   const [inboxSubTab, setInboxSubTab] = useState<'messages' | 'requests'>('messages');
   const [showNewMessageModal, setShowNewMessageModal] = useState(false);
   const [newMessageUserSearch, setNewMessageUserSearch] = useState('');
+  const [isStartingChat, setIsStartingChat] = useState(false);
+  const [modalSearchedUsers, setModalSearchedUsers] = useState<any[]>([]);
+  const [isModalSearchingUsers, setIsModalSearchingUsers] = useState(false);
 
+  // Debounced search for New Message modal
+  useEffect(() => {
+    if (!showNewMessageModal) {
+      setModalSearchedUsers([]);
+      setIsModalSearchingUsers(false);
+      return;
+    }
+
+    setIsModalSearchingUsers(true);
+    const timer = setTimeout(async () => {
+      try {
+        const results = await searchUsers(newMessageUserSearch.trim(), 15);
+        const filtered = (results || []).filter((p: any) => p.id !== user?.id);
+        setModalSearchedUsers(filtered);
+      } catch (err) {
+        console.error('Error searching users in new message modal:', err);
+        setModalSearchedUsers([]);
+      } finally {
+        setIsModalSearchingUsers(false);
+      }
+    }, 200);
+
+    return () => clearTimeout(timer);
+  }, [showNewMessageModal, newMessageUserSearch, user?.id]);
 
   // Group Chat state hooks
   const [showGroupCreateModal, setShowGroupCreateModal] = useState(false);
@@ -788,8 +848,17 @@ export default function App() {
     const checkInitialConnection = async () => {
       const online = await checkIsOnline();
       setIsConnected(online);
+      if (online) await syncOfflineQueue(user.id);
     };
     checkInitialConnection();
+
+    const handleOnline = () => {
+      setIsConnected(true);
+      void syncOfflineQueue(user.id);
+    };
+    const handleOffline = () => setIsConnected(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
 
     // Initialize native custom plugin listeners and servers
     initializeNearbyListeners(user.id);
@@ -833,6 +902,8 @@ export default function App() {
       window.removeEventListener('nearbyPeerUpdate', handlePeerUpdate);
       window.removeEventListener('nearbyMessageReceived', handleNearbyMsg);
       window.removeEventListener('connectivityUpdate', handleConnUpdate);
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
     };
   }, [user, profile, selectedRoom?.id]);
 
@@ -856,8 +927,16 @@ export default function App() {
 
   // Modals
   const [isCreateModalVisible, setIsCreateModalVisible] = useState(false);
+  const [isCreateReelModalVisible, setIsCreateReelModalVisible] = useState(false);
   const [postContent, setPostContent] = useState('');
   const [postMediaUrl, setPostMediaUrl] = useState('');
+  const [isPublishingPost, setIsPublishingPost] = useState(false);
+  const [postDraftImages, setPostDraftImages] = useState<WebPostDraftImage[]>([]);
+  const [postDraftCaption, setPostDraftCaption] = useState('');
+  const [postDraftRotation, setPostDraftRotation] = useState<0 | 90 | 180 | 270>(0);
+  const [postDraftAspectRatio, setPostDraftAspectRatio] = useState<WebPostEditOptions['aspectRatio']>('original');
+  const [postUploadProgress, setPostUploadProgress] = useState(0);
+  const [postPublishError, setPostPublishError] = useState('');
 
   // Edit Profile States
   const [isEditProfileVisible, setIsEditProfileVisible] = useState(false);
@@ -884,6 +963,69 @@ export default function App() {
       alert('Profile updated successfully!');
     } catch (e: any) {
       alert(e.message || 'Failed to update profile');
+    }
+  };
+
+  const resetPostDraft = () => {
+    postDraftImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    setPostDraftImages([]);
+    setPostDraftCaption('');
+    setPostDraftRotation(0);
+    setPostDraftAspectRatio('original');
+    setPostUploadProgress(0);
+    setPostPublishError('');
+  };
+
+  const preparePostDraft = async (
+    files: File[],
+    options: WebPostEditOptions = { rotation: 0, aspectRatio: 'original' }
+  ) => {
+    const images = await Promise.all(files.slice(0, 10).map(async (file) => {
+      const processed = await processWebPostImage(file, options);
+      return { file, processed, previewUrl: URL.createObjectURL(processed) };
+    }));
+    setPostDraftImages(images);
+    setPostDraftRotation(options.rotation);
+    setPostDraftAspectRatio(options.aspectRatio);
+    setPostPublishError('');
+  };
+
+  const changePostDraftEdits = async (options: WebPostEditOptions) => {
+    if (postDraftImages.length === 0) return;
+    postDraftImages.forEach((image) => URL.revokeObjectURL(image.previewUrl));
+    try {
+      await preparePostDraft(postDraftImages.map((image) => image.file), options);
+    } catch (error: any) {
+      setPostPublishError(error?.message || 'Unable to apply image edits');
+    }
+  };
+
+  const publishPostDraft = async () => {
+    if (isPublishingPost || postDraftImages.length === 0) return;
+    setIsPublishingPost(true);
+    setPostPublishError('');
+    setPostUploadProgress(0);
+    const uploadedPaths: string[] = [];
+    try {
+      for (let index = 0; index < postDraftImages.length; index += 1) {
+        const image = postDraftImages[index];
+        uploadedPaths.push(await uploadPostImage(image.processed, image.file.name));
+        setPostUploadProgress(Math.round(((index + 1) / postDraftImages.length) * 100));
+      }
+      const newPost = await createPost(
+        postDraftCaption.trim(),
+        uploadedPaths.length > 1 ? 'multiple' : 'image',
+        uploadedPaths
+      );
+      setPosts((previous) => [newPost, ...previous]);
+      resetPostDraft();
+      setIsCreateModalVisible(false);
+      alert('Post Published! 🚀');
+    } catch (error: any) {
+      await Promise.allSettled(uploadedPaths.map((path) => removePostMedia(path)));
+      setPostPublishError(error?.message || 'Failed to publish post. Try again.');
+    } finally {
+      setIsPublishingPost(false);
     }
   };
 
@@ -917,10 +1059,38 @@ export default function App() {
     }
   };
 
+  const handleOpenFollowRequests = async () => {
+    setFollowModalTitle('Follow requests');
+    setFollowModalVisible(true);
+    setIsLoadingFollowModal(true);
+    try {
+      setFollowModalUsers(await fetchPendingFollowRequests());
+    } catch (e) {
+      console.error('Failed to load follow requests:', e);
+    } finally {
+      setIsLoadingFollowModal(false);
+    }
+  };
+
+  const handleFollowRequestDecision = async (requestId: string, decision: 'accepted' | 'rejected') => {
+    setFollowRequestBusyId(requestId);
+    try {
+      await respondToFollowRequest(requestId, decision);
+      setFollowModalUsers(current => current.filter(request => request.id !== requestId));
+    } catch (e: any) {
+      alert(e?.message || 'Failed to update follow request');
+    } finally {
+      setFollowRequestBusyId(null);
+    }
+  };
+
   // Handle Auth
   // Handle Auth
   const handleAuth = async () => {
-    if (!emailInput || !passwordInput) return;
+    if (!emailInput || !passwordInput) {
+      setAuthError('Username or email and password are required.');
+      return;
+    }
     setAuthError('');
     try {
       await signInUser(emailInput, passwordInput);
@@ -930,8 +1100,40 @@ export default function App() {
   };
 
   const handleRegister = async () => {
+    if (authMode === 'google_setup') {
+      if (!usernameInput.trim()) {
+        setAuthError('Username is required.');
+        return;
+      }
+      if (passwordInput && passwordInput.length < 8) {
+        setAuthError('Password must be at least 8 characters long.');
+        return;
+      }
+      if (passwordInput && passwordInput !== confirmPasswordInput) {
+        setAuthError('Passwords do not match.');
+        return;
+      }
+      setAuthError('');
+      try {
+        const formattedBirthday = birthMonth && birthDay && birthYear
+          ? `${birthYear}-${birthMonth.padStart(2, '0')}-${birthDay.padStart(2, '0')}`
+          : undefined;
+        await completeGoogleProfile(usernameInput, fullNameInput, formattedBirthday, passwordInput || undefined);
+      } catch (e: any) {
+        setAuthError(e.message || 'Could not complete your Google profile.');
+      }
+      return;
+    }
     if (!emailInput || !passwordInput || !usernameInput || !fullNameInput || !birthMonth || !birthDay || !birthYear) {
       setAuthError('All fields are required.');
+      return;
+    }
+    if (passwordInput.length < 8) {
+      setAuthError('Password must be at least 8 characters long.');
+      return;
+    }
+    if (passwordInput !== confirmPasswordInput) {
+      setAuthError('Passwords do not match.');
       return;
     }
     setAuthError('');
@@ -1267,18 +1469,11 @@ export default function App() {
     try {
       const rooms = await fetchChatRooms();
       setChatRooms(rooms);
-      if (rooms.length > 0) {
-        const stillExists = selectedRoom ? rooms.some((r: any) => r.id === selectedRoom.id) : false;
-        if (!stillExists) {
-          if (!isMobile) {
-            setSelectedRoom(rooms[0]);
-          } else {
-            setSelectedRoom(null);
-          }
-        }
-      } else {
-        setSelectedRoom(null);
-      }
+      setSelectedRoom((currentRoom: any) => {
+        if (currentRoom) return currentRoom;
+        if (rooms.length > 0 && !isMobile) return rooms[0];
+        return null;
+      });
     } catch (err) {
       console.error('Failed to load chat rooms', err);
     }
@@ -1286,13 +1481,25 @@ export default function App() {
 
   // Start chat with user
   const handleStartChat = async (peerId: string) => {
+    if (!user) return;
+    if (!peerId || peerId === user.id) return;
+    if (isStartingChat) return;
+
+    setIsStartingChat(true);
+    setActiveTab('messages');
     try {
       const room = await createChatRoom(peerId);
-      const rooms = await fetchChatRooms();
-      setChatRooms(rooms);
-      setSelectedRoom(room);
-      setActiveTab('messages');
-    } catch (e) { }
+      if (room) {
+        setSelectedRoom(room);
+        const rooms = await fetchChatRooms();
+        setChatRooms(rooms);
+      }
+    } catch (e: any) {
+      console.error('Failed to start chat', e);
+      alert(e?.message || 'Failed to start conversation. Please try again.');
+    } finally {
+      setIsStartingChat(false);
+    }
   };
 
   // Submit Comments
@@ -1540,21 +1747,37 @@ export default function App() {
   };
 
   // Auth screen
-  if (!user) {
+  if (!user || (authSetupRequired && profile)) {
+    const isCompactAuth = isShortScreen || isLandscape;
     return (
-      <View style={authStyles.container}>
-        <View style={authStyles.card}>
-          <JamshLoginHeader />
+      <SafeAreaView style={authStyles.container}>
+        <ScrollView
+          style={{ width: '100%', height: '100%' }}
+          contentContainerStyle={[
+            authStyles.scrollContent,
+            {
+              paddingTop: Math.max(safeAreaTop, 16),
+              paddingBottom: Math.max(safeAreaBottom, 24),
+            }
+          ]}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={[
+            authStyles.card,
+            { maxWidth: Math.min(width - 32, 400) }
+          ]}>
+            <JamshLoginHeader isCompact={isCompactAuth} />
 
           {authError ? <Text style={authStyles.errorText}>{authError}</Text> : null}
 
           {authMode === 'login' && (
             <View style={{ width: '100%' }}>
-              <Text style={authStyles.inputLabel}>EMAIL</Text>
+              <Text style={authStyles.inputLabel}>USERNAME OR EMAIL</Text>
               <View style={authStyles.inputContainer}>
                 <Mail size={18} color="#737373" style={{ marginRight: 12 }} />
                 <TextInput
-                  placeholder="you@example.com"
+                  placeholder="Username or email"
                   placeholderTextColor="#555555"
                   style={authStyles.innerInput}
                   value={emailInput}
@@ -1618,6 +1841,58 @@ export default function App() {
                   </Text>
                 </TouchableOpacity>
               </View>
+            </View>
+          )}
+
+          {authMode === 'google_setup' && (
+            <View style={{ width: '100%' }}>
+              <Text style={authStyles.inputLabel}>GOOGLE EMAIL</Text>
+              <View style={authStyles.inputContainer}>
+                <Mail size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  value={user?.email || ''}
+                  editable={false}
+                  style={authStyles.innerInput}
+                />
+              </View>
+              <Text style={authStyles.inputLabel}>USERNAME</Text>
+              <View style={authStyles.inputContainer}>
+                <UserPlus size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Choose a unique username"
+                  placeholderTextColor="#555555"
+                  value={usernameInput}
+                  onChangeText={setUsernameInput}
+                  style={authStyles.innerInput}
+                />
+              </View>
+              <Text style={authStyles.inputLabel}>PASSWORD (OPTIONAL)</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Set later if preferred"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  value={passwordInput}
+                  onChangeText={setPasswordInput}
+                  style={authStyles.innerInput}
+                />
+              </View>
+              <Text style={authStyles.inputLabel}>CONFIRM PASSWORD</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Confirm password"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  value={confirmPasswordInput}
+                  onChangeText={setConfirmPasswordInput}
+                  style={authStyles.innerInput}
+                />
+              </View>
+              <TouchableOpacity style={authStyles.btnGradient} onPress={handleRegister}>
+                <Text style={authStyles.btnTextBlack}>Complete Google Registration</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -1781,6 +2056,18 @@ export default function App() {
                   onChangeText={setEmailInput}
                 />
               </View>
+              <Text style={authStyles.inputLabel}>CONFIRM PASSWORD</Text>
+              <View style={authStyles.inputContainer}>
+                <Lock size={18} color="#737373" style={{ marginRight: 12 }} />
+                <TextInput
+                  placeholder="Confirm password"
+                  placeholderTextColor="#555555"
+                  secureTextEntry={!showPassword}
+                  value={confirmPasswordInput}
+                  onChangeText={setConfirmPasswordInput}
+                  style={authStyles.innerInput}
+                />
+              </View>
               <TouchableOpacity style={authStyles.btnGradient} onPress={handleForgotPassword}>
                 <Text style={authStyles.btnTextBlack}>Send Reset Link</Text>
               </TouchableOpacity>
@@ -1823,8 +2110,9 @@ export default function App() {
               </TouchableOpacity>
             </View>
           )}
-        </View>
-      </View>
+          </View>
+        </ScrollView>
+      </SafeAreaView>
     );
   }
 
@@ -1836,7 +2124,6 @@ export default function App() {
     <SafeAreaView style={[styles.container, isMobile && { flexDirection: 'column' }]}>
       {isMobile && (
         <View style={{
-          height: 60,
           width: '100%',
           backgroundColor: '#000000',
           borderBottomWidth: 0.5,
@@ -1844,7 +2131,11 @@ export default function App() {
           flexDirection: 'row',
           alignItems: 'center',
           justifyContent: 'space-between',
-          paddingHorizontal: 16,
+          paddingHorizontal: Math.max(safeAreaLeft, 16),
+          paddingRight: Math.max(safeAreaRight, 16),
+          paddingTop: Math.max(safeAreaTop, 8),
+          paddingBottom: 10,
+          minHeight: 56 + Math.max(safeAreaTop, 0),
           zIndex: 200,
         }}>
           {/* Left section: Logo & App name */}
@@ -1962,31 +2253,33 @@ export default function App() {
       )}
 
       {/* NAVIGATION SIDEBAR / BOTTOM BAR */}
+      {(!isMobile || !selectedRoom || activeTab !== 'messages') && (
       <View style={[
         sidebarStyles.container,
         isMobile && {
-          width: width - 24,
-          height: 60,
+          position: 'absolute',
+          bottom: Math.max(safeAreaBottom, 8) + 4,
+          left: 12,
+          right: 12,
+          maxWidth: 520,
+          alignSelf: 'center',
+          height: 58,
           flexDirection: 'row',
           borderRightWidth: 0,
           borderWidth: 1,
-          borderColor: 'rgba(255, 255, 255, 0.08)',
+          borderColor: 'rgba(255, 255, 255, 0.1)',
           paddingVertical: 0,
-          paddingHorizontal: 16,
+          paddingHorizontal: 12,
           justifyContent: 'space-around',
           alignItems: 'center',
-          position: 'absolute',
-          bottom: 12,
-          left: 12,
-          right: 12,
-          backgroundColor: 'rgba(10, 10, 10, 0.85)',
-          borderRadius: 30,
+          backgroundColor: 'rgba(12, 12, 12, 0.92)',
+          borderRadius: 29,
           zIndex: 1000,
           backdropFilter: 'blur(20px)',
           shadowColor: '#000',
           shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.4,
-          shadowRadius: 10,
+          shadowOpacity: 0.5,
+          shadowRadius: 12,
         } as any
       ]}>
         {!isMobile && (
@@ -2048,7 +2341,7 @@ export default function App() {
             borderWidth: 1,
             borderColor: 'rgba(255, 255, 255, 0.08)',
           }}>
-            <TouchableOpacity onPress={() => { setActiveTab('feed'); setActiveProfileId(null); }}>
+            <TouchableOpacity testID="mobile-nav-home" onPress={() => { setActiveTab('feed'); setActiveProfileId(null); }}>
               {activeTab === 'feed' ? (
                 <View style={{
                   width: 42,
@@ -2065,7 +2358,7 @@ export default function App() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setActiveTab('search')}>
+            <TouchableOpacity testID="mobile-nav-search" onPress={() => setActiveTab('search')}>
               {activeTab === 'search' ? (
                 <View style={{
                   width: 42,
@@ -2082,7 +2375,7 @@ export default function App() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={() => setActiveTab('shorts')}>
+            <TouchableOpacity testID="mobile-nav-shorts" onPress={() => setActiveTab('shorts')}>
               {activeTab === 'shorts' ? (
                 <View style={{
                   width: 42,
@@ -2099,7 +2392,7 @@ export default function App() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity style={{ position: 'relative' }} onPress={handleNavigateToMessages}>
+            <TouchableOpacity testID="mobile-nav-messages" style={{ position: 'relative' }} onPress={handleNavigateToMessages}>
               {activeTab === 'messages' ? (
                 <View style={{
                   width: 42,
@@ -2120,7 +2413,7 @@ export default function App() {
               )}
             </TouchableOpacity>
 
-            <TouchableOpacity onPress={handleNavigateToOwnProfile}>
+            <TouchableOpacity testID="mobile-nav-profile" onPress={handleNavigateToOwnProfile}>
               {activeTab === 'profile' ? (
                 <View style={{
                   width: 42,
@@ -2149,9 +2442,10 @@ export default function App() {
           </View>
         )}
       </View>
+      )}
 
       {/* MAIN VIEW AREA */}
-      <View style={[styles.main, isMobile && { paddingBottom: 80 }]}>
+      <View style={[styles.main, isMobile && { paddingBottom: Math.max(safeAreaBottom, 12) + 76 }]}>
 
         {/* NOTIFICATIONS TAB */}
         {activeTab === 'notifications' && (
@@ -2161,7 +2455,7 @@ export default function App() {
         {/* FEED TAB */}
         {activeTab === 'feed' && (
           <View style={[styles.feedWrapper, isMobile && { flexDirection: 'column' }]}>
-            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[feedStyles.scroll, isMobile && { width: width, paddingLeft: 0, paddingRight: 0, paddingBottom: 64, alignItems: 'center' }]} style={{ height: '100%', flex: 1 }}>
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={[feedStyles.scroll, isMobile && { width: '100%', maxWidth: '100%', paddingLeft: 0, paddingRight: 0, paddingBottom: Math.max(safeAreaBottom, 12) + 80, alignItems: 'center' }]} style={{ height: '100%', flex: 1 }}>
 
               {/* Category Pills Filters (Mobile Only) */}
               {isMobile && (
@@ -2489,7 +2783,7 @@ export default function App() {
 
                 // Desktop Post Layout
                 return (
-                  <View key={post.id} style={[postStyles.card, isMobile && { width: width, paddingHorizontal: 16, borderBottomWidth: 0.5, borderBottomColor: instagramTheme.colors.border, marginBottom: 20 }]}>
+                  <View key={post.id} style={[postStyles.card, isMobile && { width: '100%', maxWidth: Math.min(width, 500), paddingHorizontal: Math.max(safeAreaLeft, 12), borderBottomWidth: 0.5, borderBottomColor: instagramTheme.colors.border, marginBottom: 20 }]}>
                     {/* Header */}
                     <View style={postStyles.header}>
                       <TouchableOpacity onPress={() => { setActiveProfileId(post.user_id); setActiveTab('profile'); }}>
@@ -2651,7 +2945,7 @@ export default function App() {
 
         {/* SEARCH & EXPLORE TAB */}
         {activeTab === 'search' && (
-          <View style={[searchStyles.container, isMobile && { padding: 12 }]}>
+          <View style={[searchStyles.container, isMobile && { width: '100%', maxWidth: '100%', padding: 12, paddingBottom: Math.max(safeAreaBottom, 12) + 84 }]}>
             {/* STICKY SEARCH BAR */}
             <View style={{ position: 'relative', zIndex: 100 }}>
               <TextInput
@@ -2923,6 +3217,7 @@ export default function App() {
                     {searchTabCombinedResults.users.map((res: any) => (
                       <TouchableOpacity
                         key={res.id}
+                        testID={`search-result-${res.username}`}
                         style={searchStyles.resultRow}
                         onPress={() => {
                           setActiveProfileId(res.id);
@@ -2935,10 +3230,10 @@ export default function App() {
                           <Text style={searchStyles.displayName}>{res.display_name}</Text>
                         </View>
                         <View style={{ flexDirection: 'row', gap: 6 }}>
-                          <TouchableOpacity style={[searchStyles.viewBtn, { backgroundColor: '#F59A18' }]} onPress={() => handleStartChat(res.id)}>
+                          <TouchableOpacity testID={`search-result-message-${res.username}`} style={[searchStyles.viewBtn, { backgroundColor: '#F59A18' }]} onPress={() => handleStartChat(res.id)}>
                             <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold' }}>Message</Text>
                           </TouchableOpacity>
-                          <TouchableOpacity style={searchStyles.viewBtn} onPress={() => {
+                          <TouchableOpacity testID={`search-result-view-${res.username}`} style={searchStyles.viewBtn} onPress={() => {
                             setActiveProfileId(res.id);
                             setActiveTab('profile');
                           }}>
@@ -3021,43 +3316,15 @@ export default function App() {
 
         {/* REELS/SHORTS TAB */}
         {activeTab === 'shorts' && (
-          <View style={shortsStyles.container}>
-            <View style={shortsStyles.reelCard}>
-              <View style={shortsStyles.mockPlayer}>
-                <Film size={48} color={instagramTheme.colors.orange} />
-                <Text style={{ color: '#fff', fontSize: 18, fontWeight: 'bold', marginTop: 12 }}>Vlog short simulation</Text>
-                <Text style={{ color: instagramTheme.colors.textSecondary, marginTop: 4 }}>[Simulated Loop vertical player]</Text>
-              </View>
-
-              {/* Overlay info */}
-              <View style={shortsStyles.overlayInfo}>
-                <View style={shortsStyles.authorRow}>
-                  <Image source={{ uri: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150' }} style={postStyles.avatar} />
-                  <Text style={shortsStyles.reelUser}>@sophia_code</Text>
-                  <TouchableOpacity style={shortsStyles.followBtn}><Text style={shortsStyles.followText}>Follow</Text></TouchableOpacity>
-                </View>
-                <Text style={shortsStyles.reelDesc}>Unleashing E2EE key exchanges! ⚡ #thunder #reels</Text>
-              </View>
-
-              {/* Action column on the right side */}
-              <View style={shortsStyles.actions}>
-                <TouchableOpacity style={shortsStyles.actionItem} onPress={() => { }}>
-                  <Text style={{ fontSize: 28 }}>⚡</Text>
-                  <Text style={shortsStyles.actionCount}>12.4K</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={shortsStyles.actionItem}>
-                  <MessageSquare size={26} color="#fff" />
-                  <Text style={shortsStyles.actionCount}>120</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={shortsStyles.actionItem}>
-                  <Send size={26} color="#fff" />
-                </TouchableOpacity>
-                <TouchableOpacity style={shortsStyles.actionItem}>
-                  <Bookmark size={26} color="#fff" />
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
+          <WebReelsView
+            height={isMobile ? height - 110 : height - 80}
+            width={width}
+            onNavigateProfile={(creatorId) => {
+              setActiveProfileId(creatorId);
+              setActiveTab('profile');
+            }}
+            onOpenCreateReel={() => setIsCreateReelModalVisible(true)}
+          />
         )}
 
         {/* INBOX/MESSAGES TAB (Instagram Direct Experience) */}
@@ -3116,7 +3383,7 @@ export default function App() {
 
         {/* PROFILE TAB */}
         {activeTab === 'profile' && (
-          <ScrollView contentContainerStyle={[profileStyles.scroll, isMobile && { paddingHorizontal: 16, paddingVertical: 20, paddingBottom: 64 }]} showsVerticalScrollIndicator={false} style={{ height: '100%', flex: 1 }}>
+          <ScrollView contentContainerStyle={[profileStyles.scroll, isMobile && { paddingHorizontal: 16, paddingVertical: 20, paddingBottom: Math.max(safeAreaBottom, 12) + 84 }]} showsVerticalScrollIndicator={false} style={{ height: '100%', flex: 1 }}>
             {/* Header info */}
             <View style={[profileStyles.header, isMobile && { flexDirection: 'column', gap: 16, alignItems: 'center', marginBottom: 24 }]}>
               <Avatar uri={activeProfile?.avatar_url} size={isMobile ? 90 : 150} style={profileStyles.avatar} />
@@ -3144,7 +3411,12 @@ export default function App() {
                         )}
                       </TouchableOpacity>
 
-                      <TouchableOpacity style={profileStyles.editBtn} onPress={() => handleStartChat(activeProfile.id)}>
+                      <TouchableOpacity
+                        testID="profile-message-button"
+                        accessibilityRole="button"
+                        style={profileStyles.editBtn}
+                        onPress={() => handleStartChat(activeProfile.id)}
+                      >
                         <Text style={profileStyles.editBtnText}>Message</Text>
                       </TouchableOpacity>
                     </View>
@@ -3152,6 +3424,9 @@ export default function App() {
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
                       <TouchableOpacity style={profileStyles.editBtn} onPress={handleOpenEditProfile}>
                         <Text style={profileStyles.editBtnText}>Edit profile</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={profileStyles.editBtn} onPress={handleOpenFollowRequests}>
+                        <Text style={profileStyles.editBtnText}>Requests</Text>
                       </TouchableOpacity>
                       <TouchableOpacity><Settings size={20} color="#fff" /></TouchableOpacity>
                     </View>
@@ -3354,7 +3629,7 @@ export default function App() {
             borderWidth: 1.5,
             borderColor: 'rgba(245, 154, 24, 0.35)',
             padding: 24,
-            paddingBottom: isMobile ? 36 : 24,
+            paddingBottom: isMobile ? Math.max(safeAreaBottom, 20) + 16 : 24,
             shadowColor: '#F59A18',
             shadowOffset: { width: 0, height: -4 },
             shadowOpacity: 0.3,
@@ -3394,26 +3669,18 @@ export default function App() {
                   borderColor: 'rgba(245, 154, 24, 0.25)',
                 }}
                 onPress={() => {
-                  // Trigger Native Media Picker for Post
+                  if (isPublishingPost) return;
                   const input = document.createElement('input');
                   input.type = 'file';
-                  input.accept = 'image/*,video/*';
+                  input.accept = 'image/*';
                   input.multiple = true;
                   input.onchange = async (e: any) => {
-                    const files = Array.from(e.target.files || []) as File[];
+                    const files = (Array.from(e.target.files || []) as File[]).slice(0, 10);
                     if (files.length > 0) {
-                      const fileUrls = files.map(f => URL.createObjectURL(f));
-                      const captionPrompt = prompt('Write a caption for your post:', postContent || '');
-                      if (captionPrompt !== null) {
-                        try {
-                          const newP = await createPost(captionPrompt, files[0].type.startsWith('video') ? 'video' : 'image', fileUrls);
-                          setPosts(prev => [newP, ...prev]);
-                          setPostContent('');
-                          setIsCreateModalVisible(false);
-                          alert('Post Published! 🚀');
-                        } catch (err: any) {
-                          alert('Failed to publish post: ' + (err?.message || err));
-                        }
+                      try {
+                        await preparePostDraft(files);
+                      } catch (err: any) {
+                        setPostPublishError(err?.message || 'Unable to prepare selected images');
                       }
                     }
                   };
@@ -3428,11 +3695,89 @@ export default function App() {
                     📸 Create Post
                   </Text>
                   <Text style={{ color: '#A8A8A8', fontSize: 12, fontFamily: 'Manrope, sans-serif', marginTop: 2 }}>
-                    Pick photos or videos from camera or gallery
+                    Pick up to 10 photos, preview, edit, and publish
                   </Text>
                 </View>
                 <Text style={{ color: '#F59A18', fontSize: 20 }}>›</Text>
               </TouchableOpacity>
+
+              {postDraftImages.length > 0 && (
+                <View style={{ gap: 12, borderTopWidth: 1, borderTopColor: '#2A2A2A', paddingTop: 16 }}>
+                  <Text style={{ color: '#FFF', fontWeight: '700' }}>Preview ({postDraftImages.length})</Text>
+                  <ScrollView horizontal style={{ maxHeight: 110 }}>
+                    {postDraftImages.map((image, index) => (
+                      <View key={`${image.file.name}-${index}`} style={{ marginRight: 8, position: 'relative' }}>
+                        <Image source={{ uri: image.previewUrl }} style={{ width: 92, height: 92, borderRadius: 10 }} />
+                        <Text style={{ position: 'absolute', left: 6, top: 6, color: '#FFF', backgroundColor: '#000', paddingHorizontal: 5, borderRadius: 8 }}>
+                          {index + 1}
+                        </Text>
+                        <TouchableOpacity
+                          onPress={() => {
+                            URL.revokeObjectURL(image.previewUrl);
+                            setPostDraftImages((current) => current.filter((_, itemIndex) => itemIndex !== index));
+                          }}
+                          style={{ position: 'absolute', right: 4, top: 4, backgroundColor: '#000', borderRadius: 12, padding: 3 }}
+                        >
+                          <X size={14} color="#FFF" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                  <TextInput
+                    placeholder="Write a caption..."
+                    placeholderTextColor="#888"
+                    value={postDraftCaption}
+                    onChangeText={setPostDraftCaption}
+                    multiline
+                    style={{ color: '#FFF', backgroundColor: '#1E1E1E', borderRadius: 10, padding: 12, minHeight: 72 }}
+                  />
+                  <Text style={{ color: '#A8A8A8', fontSize: 12 }}>Edits change the uploaded image bytes.</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                    {(['original', '1:1', '4:5', '16:9'] as WebPostEditOptions['aspectRatio'][]).map((ratio) => (
+                      <TouchableOpacity
+                        key={ratio}
+                        onPress={() => changePostDraftEdits({ rotation: postDraftRotation, aspectRatio: ratio })}
+                        style={{ backgroundColor: postDraftAspectRatio === ratio ? '#F59A18' : '#2A2A2A', borderRadius: 8, padding: 9 }}
+                      >
+                        <Text style={{ color: postDraftAspectRatio === ratio ? '#111' : '#FFF' }}>
+                          {ratio === 'original' ? 'Original' : ratio}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                    <TouchableOpacity
+                      onPress={() => changePostDraftEdits({
+                        rotation: ((postDraftRotation + 90) % 360) as 0 | 90 | 180 | 270,
+                        aspectRatio: postDraftAspectRatio,
+                      })}
+                      style={{ backgroundColor: '#2A2A2A', borderRadius: 8, padding: 9 }}
+                    >
+                      <Text style={{ color: '#FFF' }}>Rotate 90°</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {isPublishingPost && (
+                    <Text style={{ color: '#F59A18' }}>Uploading {postUploadProgress}%...</Text>
+                  )}
+                  {postPublishError ? (
+                    <Text style={{ color: '#FF6B6B' }}>{postPublishError}</Text>
+                  ) : null}
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      disabled={isPublishingPost}
+                      onPress={resetPostDraft}
+                      style={{ flex: 1, backgroundColor: '#2A2A2A', borderRadius: 10, padding: 12, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: '#FFF', fontWeight: '700' }}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      disabled={isPublishingPost}
+                      onPress={publishPostDraft}
+                      style={{ flex: 1, backgroundColor: '#F59A18', borderRadius: 10, padding: 12, alignItems: 'center' }}
+                    >
+                      <Text style={{ color: '#111', fontWeight: '700' }}>{isPublishingPost ? 'Publishing...' : 'Publish'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
               {/* Option 2: Create Reel */}
               <TouchableOpacity
@@ -3447,27 +3792,9 @@ export default function App() {
                   borderColor: 'rgba(245, 154, 24, 0.25)',
                 }}
                 onPress={() => {
-                  const input = document.createElement('input');
-                  input.type = 'file';
-                  input.accept = 'video/*';
-                  input.onchange = async (e: any) => {
-                    const files = Array.from(e.target.files || []) as File[];
-                    if (files.length > 0) {
-                      const videoUrl = URL.createObjectURL(files[0]);
-                      const captionPrompt = prompt('Write a caption for your Reel:', '');
-                      if (captionPrompt !== null) {
-                        try {
-                          const newP = await createPost(captionPrompt || 'New Reel', 'video', [videoUrl]);
-                          setPosts(prev => [newP, ...prev]);
-                          setIsCreateModalVisible(false);
-                          alert('Reel Published! 🎬');
-                        } catch (err: any) {
-                          alert('Failed to publish Reel: ' + (err?.message || err));
-                        }
-                      }
-                    }
-                  };
-                  input.click();
+                  if (isPublishingPost) return;
+                  setIsCreateModalVisible(false);
+                  setIsCreateReelModalVisible(true);
                 }}
               >
                 <View style={{ width: 48, height: 48, borderRadius: 12, backgroundColor: 'rgba(245, 154, 24, 0.25)', justifyContent: 'center', alignItems: 'center', marginRight: 16 }}>
@@ -3574,6 +3901,15 @@ export default function App() {
         </View>
       </Modal>
 
+      {/* CANONICAL REELS CREATION MODAL */}
+      <WebCreateReelModal
+        visible={isCreateReelModalVisible}
+        onClose={() => setIsCreateReelModalVisible(false)}
+        onReelCreated={() => {
+          setActiveTab('shorts');
+        }}
+      />
+
       {/* FOLLOWERS & FOLLOWING OVERLAY MODAL */}
       <Modal transparent visible={followModalVisible} animationType="slide">
         <View style={createModalStyles.overlay}>
@@ -3610,6 +3946,7 @@ export default function App() {
                         borderBottomColor: 'rgba(255, 255, 255, 0.08)',
                       }}
                       onPress={() => {
+                        if (followModalTitle === 'Follow requests') return;
                         setFollowModalVisible(false);
                         setActiveProfileId(item.id);
                         setActiveTab('profile');
@@ -3630,14 +3967,46 @@ export default function App() {
                       </View>
                       <View style={{ flex: 1 }}>
                         <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 14 }}>
-                          {item.username || 'user'}
+                          {followModalTitle === 'Follow requests'
+                            ? (item.follower?.username || item.follower_id || 'user')
+                            : (item.username || 'user')}
                         </Text>
-                        {item.display_name && (
+                        {(followModalTitle === 'Follow requests' ? item.follower?.display_name : item.display_name) && (
                           <Text style={{ color: '#a8a8a8', fontSize: 12, marginTop: 2 }}>
-                            {item.display_name}
+                            {followModalTitle === 'Follow requests' ? item.follower.display_name : item.display_name}
                           </Text>
                         )}
                       </View>
+                      {followModalTitle === 'Follow requests' && (
+                        <View style={{ flexDirection: 'row', gap: 8 }}>
+                          <TouchableOpacity
+                            disabled={followRequestBusyId === item.id}
+                            onPress={() => handleFollowRequestDecision(item.id, 'accepted')}
+                            style={{ backgroundColor: '#F59A18', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}
+                          >
+                            <Text style={{ color: '#111', fontWeight: '700' }}>Accept</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            disabled={followRequestBusyId === item.id}
+                            onPress={() => handleFollowRequestDecision(item.id, 'rejected')}
+                            style={{ backgroundColor: '#363636', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 7 }}
+                          >
+                            <Text style={{ color: '#fff', fontWeight: '700' }}>Reject</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                      {followModalTitle !== 'Follow requests' && item.id !== user?.id && (
+                        <TouchableOpacity
+                          onPress={(e) => {
+                            e.stopPropagation();
+                            setFollowModalVisible(false);
+                            handleStartChat(item.id);
+                          }}
+                          style={{ backgroundColor: '#F59A18', borderRadius: 8, paddingHorizontal: 12, paddingVertical: 6 }}
+                        >
+                          <Text style={{ color: '#000', fontWeight: '700', fontSize: 12 }}>Message</Text>
+                        </TouchableOpacity>
+                      )}
                     </TouchableOpacity>
                   ))}
                 </ScrollView>
@@ -3704,17 +4073,18 @@ export default function App() {
                 style={[createModalStyles.urlField, { marginBottom: 12 }]}
               />
               <ScrollView style={{ maxHeight: 320 }} showsVerticalScrollIndicator={false}>
-                {mockDb.getProfiles()
-                  .filter((p: any) => p.id !== user?.id)
-                  .filter((p: any) => {
-                    if (!newMessageUserSearch.trim()) return true;
-                    const q = newMessageUserSearch.toLowerCase();
-                    return (
-                      (p.username && p.username.toLowerCase().includes(q)) ||
-                      (p.display_name && p.display_name.toLowerCase().includes(q))
-                    );
-                  })
-                  .map((profile: any) => (
+                {isModalSearchingUsers ? (
+                  <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color="#F59A18" />
+                  </View>
+                ) : modalSearchedUsers.length === 0 ? (
+                  <View style={{ paddingVertical: 24, alignItems: 'center' }}>
+                    <Text style={{ color: '#8E8E93', fontSize: 13 }}>
+                      {newMessageUserSearch.trim() ? 'No users found matching query' : 'Type a username to find people'}
+                    </Text>
+                  </View>
+                ) : (
+                  modalSearchedUsers.map((profile: any) => (
                     <TouchableOpacity
                       key={profile.id}
                       onPress={async () => {
@@ -3734,7 +4104,7 @@ export default function App() {
                       <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                         <Avatar uri={profile.avatar_url || undefined} size={36} style={{ marginRight: 12 }} />
                         <View>
-                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{profile.display_name}</Text>
+                          <Text style={{ color: '#fff', fontSize: 14, fontWeight: 'bold' }}>{profile.display_name || profile.username}</Text>
                           <Text style={{ color: '#8e8e93', fontSize: 12 }}>@{profile.username}</Text>
                         </View>
                       </View>
@@ -3742,7 +4112,8 @@ export default function App() {
                         <Text style={{ color: '#000', fontSize: 12, fontWeight: 'bold' }}>Chat</Text>
                       </View>
                     </TouchableOpacity>
-                  ))}
+                  ))
+                )}
               </ScrollView>
             </View>
           </View>
@@ -4334,7 +4705,6 @@ const postStyles = StyleSheet.create({
     fontSize: 13,
     backgroundColor: 'transparent',
     borderWidth: 0,
-    outlineStyle: 'none' as any,
   },
   postCommentBtn: {
     color: instagramTheme.colors.blue,
@@ -5131,16 +5501,21 @@ const authStyles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000000',
+    width: '100%',
+    height: '100%',
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    paddingHorizontal: 16,
   },
   card: {
     width: '100%',
-    maxWidth: 380,
+    maxWidth: 400,
     alignItems: 'center',
     backgroundColor: 'transparent',
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
   },
   tagline: {
     color: instagramTheme.colors.textSecondary,
@@ -5180,7 +5555,6 @@ const authStyles = StyleSheet.create({
     flex: 1,
     color: '#fff',
     fontSize: 14,
-    outlineStyle: 'none' as any,
     height: '100%',
   },
   btnGradient: {

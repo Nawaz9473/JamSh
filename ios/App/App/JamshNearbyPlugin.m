@@ -17,4 +17,5 @@ CAP_PLUGIN(JamshNearbyPlugin, "JamshNearby",
            CAP_PLUGIN_METHOD(removeMessageFromQueue, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(getConnectivityStatus, CAPPluginReturnPromise);
            CAP_PLUGIN_METHOD(getCurrentLocation, CAPPluginReturnPromise);
+           CAP_PLUGIN_METHOD(forwardPendingRelays, CAPPluginReturnPromise);
 )
